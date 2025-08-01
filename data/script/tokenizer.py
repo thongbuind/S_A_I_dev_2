@@ -30,20 +30,6 @@ def tokenize(sentence):
     tokens = [vocab.get(w, vocab["[UNK]"]) for w in words]
     return tokens
 
-def detokenize(tokens, infor=None):
-    """Chuyển token số về câu văn bản, thay thế token đặc biệt nếu cần"""
-    special_tokens = {0, 1, 2, 3, 4, 5, 6}  # PAD, UNK, BOS, EOS, SEP
-    words = []
-    for t in tokens:
-        if t in special_tokens or t not in idx2word:
-            continue
-        word = idx2word[t]
-        if infor and word in infor:
-            words.append(infor[word])
-        else:
-            words.append(word)
-    return " ".join(words)
-
 def load_pretrain_dataset(file_path):
     dataset = []
     with open(file_path, "r", encoding="utf-8") as f:
@@ -102,7 +88,7 @@ X, Y, lengths = prepare_data(pretrain_data, vocab, max_seq_len, batch_size=50)
 
 np.set_printoptions(threshold=np.inf)
 
-# Lưu dữ liệu gộp với thông tin lengths
+# Lưu dữ liệu
 data_tokenized_dir = current_file.parent.parent / "processed" / "data_tokenized.py"
 with open(data_tokenized_dir, "w", encoding="utf-8") as f:
     f.write("import numpy as np\n\n")

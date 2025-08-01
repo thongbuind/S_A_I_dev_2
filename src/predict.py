@@ -5,10 +5,10 @@ import json
 import sys
 from pathlib import Path
 from vncorenlp import VnCoreNLP
-project_root = Path(__file__).resolve().parent.parent
-sys.path.append(str(project_root))
 
 current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+sys.path.append(str(project_root))
 
 model_path = project_root / "model" / "s_a_i.keras"
 model = models.load_model(model_path)
@@ -38,29 +38,31 @@ def tokenize(sentence):
     tokens = [vocab.get(w, vocab["[UNK]"]) for w in words]
     return tokens
 
-def detokenize(tokens, infor=None):
-    """Chuyển token số về câu văn bản, thay thế token đặc biệt"""
+def detokenize(tokens):
     special_tokens = {0, 1, 2, 3, 4, 5, 6}  # PAD, UNK, BOS, EOS, SEP
     words = []
+
     for t in tokens:
         if t in special_tokens or t not in idx2word:
             continue
         word = idx2word[t]
-        if infor and word in infor:
-            words.append(infor[word])
+        
+        if word in {",", ".", ":", ";", "!", "?"} and words:
+            words[-1] += word
         else:
             words.append(word)
     return " ".join(words)
 
-def new_generate_response(sentence, max_new_tokens=max_seq_len, top_k=2, temperature=1.0):
+def generate_response(sentence, max_new_tokens=max_seq_len, loss_margin=0.2):
     """
     Tạo phản hồi từ câu đầu vào:
         current_sequence = [BOS] + req
         sequence = loop(predict(current_sequence))
-    Nâng cấp:
-        - Tối ưu hoá Padding
-        - Đa dạng cơ chế lấy mẫu (sampling), sử dụng Top-k
-        - Thay vì chỉ sử dụng token cuối thì sử dụng cả đoạn từ đầu để dự đoán
+
+    Sampling strategy:
+        - Chọn token có loss thấp nhất
+        - Tìm các token có loss không vượt quá best_loss + 0.2
+        - Random trong nhóm đó
     """
     req_tokens = tokenize(sentence)
     current_sequence = [vocab["[BOS]"]] + req_tokens
@@ -70,17 +72,15 @@ def new_generate_response(sentence, max_new_tokens=max_seq_len, top_k=2, tempera
     )
 
     for step in range(max_new_tokens):
-        preds = model(padded_input, training=False)
-        next_token_probs = preds[0, len(current_sequence) - 1, :].numpy()
+        preds = model(padded_input, training=False)[0, len(current_sequence) - 1, :].numpy()
+        preds = np.clip(preds, 1e-9, 1.0)
 
-        # Áp dụng temperature
-        next_token_probs = np.exp(np.log(next_token_probs + 1e-10) / temperature)
-        next_token_probs /= np.sum(next_token_probs)
+        token_losses = -np.log(preds)
+        best_loss = np.min(token_losses)
 
-        # Top-k sampling
-        top_k_indices = np.argsort(next_token_probs)[-top_k:]
-        top_k_probs = next_token_probs[top_k_indices] / np.sum(next_token_probs[top_k_indices])
-        next_token = np.random.choice(top_k_indices, p=top_k_probs)
+        # Tìm các token có loss <= best_loss + margin
+        candidate_indices = np.where(token_losses <= best_loss + loss_margin)[0]
+        next_token = np.random.choice(candidate_indices)
 
         if next_token in [vocab["[EOS]"], vocab["[PAD]"]]:
             break
@@ -90,32 +90,32 @@ def new_generate_response(sentence, max_new_tokens=max_seq_len, top_k=2, tempera
 
         if len(current_sequence) >= max_seq_len:
             break
-    
+
     return detokenize(current_sequence[1:])
 
 # ================
 # Kiểm Tra Mô Hình
 # ================
 
-prompts = [
+inputs = [
     "bánh mì",
-    "bánh mì có nguồn gốc từ",
     "việt nam",
     "việt nam sở hữu",
     "phở",
-    "buổi sáng người việt nam thường ăn",
+    "buổi sáng người việt nam thường",
     "đám mây",
-    "Đinh Tiên Hoàng lên ngôi",
-    "lê lợi có miếu hiệu",
+    "Đinh Tiên Hoàng",
+    "Lê Lợi đã",
+    "sau khi lên ngôi",
     "công thức 1",
     "sáng hôm ấy",
-    "sau khi ăn xong, chúng tôi đi",
+    "sau khi ăn xong, chúng tôi",
     "mặc dù",
     "bởi vì trời mưa,"
 ]
 
 print("\n=== Test pre-train ===")
-for req in prompts:
-    print(f"Req: {req} \nRes: {new_generate_response(req)}")
-
-
+i=1
+for req in inputs:
+    print(f"Req {i}: {req} \nRes {i}: {generate_response(req)}")
+    i+=1

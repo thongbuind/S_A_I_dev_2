@@ -6,8 +6,8 @@
     "num_layers": 6,
     "ff_dim": 512,
     "dropout": 0.2,
-    "epochs": 50,
-    "batch_size": 64,
+    "epochs": 10,
+    "batch_size": 32,
     "train_ratio": 0.8,
     "val_ratio": 0.1
 }

@@ -177,6 +177,9 @@ for epoch in range(epochs):
     current_lr = float(tf.keras.backend.get_value(model.optimizer.learning_rate))
     
     print(f"║ Epoch: {epoch+1:2d}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {val_loss:.4f}, LR: {current_lr:.4f} ║")
+    model_folder = project_root / "model"
+    model_folder.mkdir(parents=True, exist_ok=True)
+    model.save(model_folder / "s_a_i.keras")
 
 print("╠═════════════════════════════════════════╣")
 print("║          ĐÁNH GIÁ TRÊN TEST SET         ║")
@@ -187,9 +190,5 @@ test_loss = evaluate_model(model, X_test, Y_test, lengths_test, batch_size)
 print(f"║ Test Loss: {test_loss:.4f}                       ║")
 print("╚═════════════════════════════════════════╝")
 
-# Lưu model cuối cùng
-model_folder = project_root / "model"
-model_folder.mkdir(parents=True, exist_ok=True)
-model.save(model_folder / "s_a_i.keras")
 print(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
 print(f"Test Loss cuối cùng: {test_loss:.4f}")
