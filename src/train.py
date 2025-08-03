@@ -5,16 +5,20 @@ from model import Model
 import sys
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parent.parent
-sys.path.append(str(project_root))
-from data.processed.data_tokenized import X, Y, lengths
+data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "data_tokenized.npz"
+data = np.load(data_tokenized_path, allow_pickle=True)
+X = data["X"]
+Y = data["Y"]
+lengths = data["lengths"]
 
 current_file = Path(__file__).resolve()
+src_dir = current_file.parent
+project_root = src_dir.parent
+sys.path.append(str(project_root))
+config_file = project_root / "config" / "config.json"
 
-config_dir = current_file.parent.parent / "config" / "config.json"
-with open(config_dir, 'r') as f:
+with open(config_file, 'r') as f:
     config = json.load(f)
-
 vocab_size = config['vocab_size']
 max_seq_len = config['max_seq_len']
 d_model = config['d_model']

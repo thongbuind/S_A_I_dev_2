@@ -7,21 +7,22 @@ from pathlib import Path
 from vncorenlp import VnCoreNLP
 
 current_file = Path(__file__).resolve()
-project_root = current_file.parent.parent
+src_dir = current_file.parent
+project_root = src_dir.parent
 sys.path.append(str(project_root))
+config_file = project_root / "config" / "config.json"
+vocab_file = project_root/ "data" / "vocab.txt"
+model_file = project_root / "model" / "s_a_i.keras"
 
-model_path = project_root / "model" / "s_a_i.keras"
-model = models.load_model(model_path)
+model = models.load_model(model_file)
 
-config_dir = current_file.parent.parent / "config" / "config.json"
-with open(config_dir, 'r') as f:
+with open(config_file, 'r') as f:
     config = json.load(f)
 max_seq_len = config['max_seq_len']
 
 # Đọc vocab
 vocab = {}
-vocab_path = current_file.parent.parent/ "data" / "vocab.txt"
-with open(vocab_path, "r", encoding="utf-8") as f:
+with open(vocab_file, "r", encoding="utf-8") as f:
     for line in f:
         word, idx = line.strip().split('\t')
         vocab[word] = int(idx)
