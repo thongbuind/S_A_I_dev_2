@@ -74,11 +74,16 @@ X, Y, lengths = [], [], []
 for line in dataset:
     encoded = tokenizer.encode(line)
     tokens = encoded.ids
-    if len(tokens) < 2 or len(tokens) > max_seq_len - 2:
+
+    if len(tokens) < 2 or len(tokens) + 2 > max_seq_len:
         continue
-    X.append(tokens)
-    Y.append(tokens)
-    lengths.append(len(tokens))
+
+    inp = [vocab["[BOS]"]] + tokens
+    tgt = tokens + [vocab["[EOS]"]]
+    
+    X.append(inp)
+    Y.append(tgt)
+    lengths.append(len(inp))
 
 print(f"\n📊 THỐNG KÊ DỮ LIỆU:")
 print(f"📊 Tổng số mẫu: {len(X)}")

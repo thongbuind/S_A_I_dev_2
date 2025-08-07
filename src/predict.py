@@ -30,8 +30,8 @@ with open(vocab_file, "r", encoding="utf-8") as f:
 
 idx2word = {i: w for w, i in vocab.items()}
 
-tokenizer_path = processed_dir / "bpe_tokenizer.json"
-tokenizer = Tokenizer.from_file(str(tokenizer_path))
+tokenizer_file = processed_dir / "tokenizer.json"
+tokenizer = Tokenizer.from_file(str(tokenizer_file))
 
 def tokenize(sentence):
     encoded = tokenizer.encode(sentence.lower())
