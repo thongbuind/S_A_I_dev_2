@@ -21,7 +21,6 @@ with open(config_file, 'r') as f:
     config = json.load(f)
 max_seq_len = config['max_seq_len']
 
-# Đọc vocab
 vocab = {}
 with open(vocab_file, "r", encoding="utf-8") as f:
     for line in f:

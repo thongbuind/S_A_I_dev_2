@@ -17,9 +17,17 @@ with open(config_file, 'r', encoding='utf-8') as f:
 max_seq_len = config['max_seq_len']
 vocab_size = config['vocab_size']
 
-with open(raw_dir / "pre_train.json", "r", encoding="utf-8") as f:
-    json_data = json.load(f)
-    dataset = [item.strip() for item in json_data if isinstance(item, str) and item.strip()]
+dataset = []
+with open(raw_dir / "pre_train.jsonl", "r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        obj = json.loads(line)
+        if isinstance(obj, dict) and "text" in obj:
+            text = obj["text"].strip()
+            if text:
+                dataset.append(text)
 
 with open(raw_dir / "word.txt", "r", encoding="utf-8") as f:
     sample_words = {line.strip() for line in f if line.strip()}
