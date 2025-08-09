@@ -13,3 +13,4 @@ __pycache__/
 
 # data
 data/
+data/processed/data_ids.npz
