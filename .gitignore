@@ -12,5 +12,5 @@ __pycache__/
 *.tmp
 
 # data
-data/
-data/processed/data_ids.npz
+data/processed
+data/raw
