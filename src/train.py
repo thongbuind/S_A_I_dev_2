@@ -30,6 +30,7 @@ epochs = config['epochs']
 batch_size = config['batch_size']
 train_ratio = config['train_ratio']
 val_ratio = config['val_ratio']
+learning_rate = config['learning_rate']
 
 def create_dynamic_batch(X, Y, lengths, batch_indices):
     batch_X = [X[i] for i in batch_indices]
@@ -111,7 +112,7 @@ class CustomLRScheduler:
         self.min_lr = min_lr
         self.best_val_loss = float('inf')
         self.wait = 0
-        self.current_lr = 0.0005
+        self.current_lr = learning_rate
         
     def on_epoch_end(self, epoch):
         val_loss = evaluate_model(self.model, self.X_val, self.Y_val, self.lengths_val, self.batch_size)
@@ -133,7 +134,7 @@ class CustomLRScheduler:
         return val_loss
 
 model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
-optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005)
+optimizer = tf.keras.optimizers.Adam(learning_rate)
 model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer)
 
 lr_scheduler = CustomLRScheduler(model, X_val, Y_val, lengths_val, batch_size)

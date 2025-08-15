@@ -9,5 +9,6 @@
   "epochs": 10,
   "batch_size": 128,
   "train_ratio": 0.8,
-  "val_ratio": 0.1
+  "val_ratio": 0.1,
+  "learning_rate": 0.001
 }

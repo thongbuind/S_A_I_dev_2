@@ -23,7 +23,11 @@ with open(raw_dir / "pre_train.jsonl", "r", encoding="utf-8") as f:
         line = line.strip()
         if not line:
             continue
-        obj = json.loads(line)
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as e:
+            continue
+
         if isinstance(obj, dict) and "text" in obj:
             text = obj["text"].strip()
             if text:
