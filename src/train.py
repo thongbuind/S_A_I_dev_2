@@ -1,15 +1,47 @@
-import json
+import psutil, os, sys
 import numpy as np
-import tensorflow as tf
+import json
+import tensorflow as tf #tốn 0,5GB RAM
 from model import Model
-import sys
 from pathlib import Path
+import gc
+
+def log_memory_usage(note="", top_k=10):
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    rss_in_mb = mem_info.rss / (1024 ** 2)
+    print(f"\n[MEMORY] {note} | RAM used: {rss_in_mb:.2f} MB")
+
+    all_vars = globals()
+    var_sizes = []
+
+    for name, obj in all_vars.items():
+        try:
+            if isinstance(obj, np.ndarray):
+                size = obj.nbytes
+            else:
+                size = sys.getsizeof(obj)
+            var_sizes.append((name, size))
+        except Exception:
+            pass
+
+    var_sizes.sort(key=lambda x: x[1], reverse=True)
+
+    print(f"Top {top_k} variables by size:")
+    for name, size in var_sizes[:top_k]:
+        print(f"  {name:<20} {size/1024/1024:.2f} MB")
+
+def clear(*args):
+    for arg in args:
+        del arg
+    gc.collect()
 
 data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "data_ids.npz"
 data = np.load(data_tokenized_path, allow_pickle=True)
 X = data["X"]
 Y = data["Y"]
 lengths = data["lengths"]
+log_memory_usage("Sau khi load data và gán X,Y,lengths")
 
 current_file = Path(__file__).resolve()
 src_dir = current_file.parent
@@ -33,12 +65,12 @@ val_ratio = config['val_ratio']
 learning_rate = config['learning_rate']
 
 def create_dynamic_batch(X, Y, lengths, batch_indices):
+    """Tạo ra các batch đã được pad theo độ dài của seq dài nhất trong pad"""
     batch_X = [X[i] for i in batch_indices]
     batch_Y = [Y[i] for i in batch_indices]
     batch_lengths = [lengths[i] for i in batch_indices]
     
     max_len_in_batch = max(batch_lengths)
-    
     batch_X_padded = tf.keras.preprocessing.sequence.pad_sequences(
         batch_X, maxlen=max_len_in_batch, padding='post'
     )
@@ -86,20 +118,19 @@ def evaluate_model(model, X_val, Y_val, lengths_val, batch_size):
         batch_indices = list(range(start_idx, end_idx))
 
         batch_X, batch_Y, batch_lengths = create_dynamic_batch(X_val, Y_val, lengths_val, batch_indices)
+        actual_batch_size = batch_X.shape[0]
 
+        # padding batch cuối cùng
         if batch_X.shape[0] < batch_size:
             pad_size = batch_size - batch_X.shape[0]
-            current_seq_len = batch_X.shape[1]
             batch_X = np.pad(batch_X, [(0, pad_size), (0, 0)], mode='constant', constant_values=0)
             batch_Y = np.pad(batch_Y, [(0, pad_size), (0, 0)], mode='constant', constant_values=0)
 
         loss = model.test_on_batch(batch_X, batch_Y)
-        total_loss += loss
+        total_loss += loss * actual_batch_size
         total_batches += 1
 
     return total_loss / total_batches if total_batches > 0 else float('inf')
-
-X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
 
 class CustomLRScheduler:
     def __init__(self, model, X_val, Y_val, lengths_val, batch_size, patience=3, min_lr=1e-6):
@@ -133,6 +164,10 @@ class CustomLRScheduler:
         
         return val_loss
 
+X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+clear(X, Y, lengths, data)
+log_memory_usage("Sau khi split train/val/test")
+
 model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
 optimizer = tf.keras.optimizers.Adam(learning_rate)
 model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer)
@@ -142,6 +177,8 @@ lr_scheduler = CustomLRScheduler(model, X_val, Y_val, lengths_val, batch_size)
 num_train_samples = len(X_train)
 num_train_batches = (num_train_samples + batch_size - 1) // batch_size
 
+log_memory_usage("Sau khi compile model")
+
 print("╔════════════════════════════════════════════════════════════════╗")
 print("║                       BẮT ĐẦU PRE-TRAIN                        ║")
 print("╠════════════════════════════════════════════════════════════════╣")
@@ -150,11 +187,13 @@ best_val_loss = float('inf')
 patience_counter = 0
 
 for epoch in range(epochs):
+    print(f"║ Bắt đầu Epoch: {epoch+1:2d}/{epochs}                           ║")
     # SHUFFLE TRAIN SET trước mỗi epoch
     train_indices = np.random.permutation(len(X_train))
     X_train_shuffled = [X_train[i] for i in train_indices]
     Y_train_shuffled = [Y_train[i] for i in train_indices]
     lengths_train_shuffled = [lengths_train[i] for i in train_indices]
+    log_memory_usage("Sau khi SHUFFLE TRAIN SET trước mỗi epoch")
 
     epoch_train_loss = 0.0
     num_train_samples = len(X_train_shuffled)
@@ -172,6 +211,7 @@ for epoch in range(epochs):
             current_seq_len = batch_X.shape[1]
             batch_X = np.pad(batch_X, [(0, pad_size), (0, 0)], mode='constant', constant_values=0)
             batch_Y = np.pad(batch_Y, [(0, pad_size), (0, 0)], mode='constant', constant_values=0)
+            log_memory_usage(f"Sau khi tạo batch {i+1}/{num_train_batches} trong epoch {epoch+1}")
         
         loss = model.train_on_batch(batch_X, batch_Y)
         epoch_train_loss += loss
@@ -180,6 +220,7 @@ for epoch in range(epochs):
     
     val_loss = lr_scheduler.on_epoch_end(epoch)
     current_lr = float(tf.keras.backend.get_value(model.optimizer.learning_rate))
+    log_memory_usage(f"Sau khi hoàn thành epoch {epoch+1}")
     
     print(f"║ Epoch: {epoch+1:2d}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {val_loss:.4f}, LR: {current_lr:.4f} ║")
     model_folder = project_root / "model"

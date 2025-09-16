@@ -4,10 +4,7 @@ from keras import layers, models
 class RotaryPositionalEmbedding(layers.Layer):
     def __init__(self, d_model, max_seq_len, **kwargs):
         super().__init__(**kwargs)
-        
-        if d_model % 2 != 0:
-            raise ValueError('d_model must be even for RoPE')
-        
+
         self.d_model = d_model
         self.max_seq_len = max_seq_len
         
@@ -42,11 +39,11 @@ class RotaryPositionalEmbedding(layers.Layer):
     
     def apply_rope(self, x, cos_freqs, sin_freqs):
         """Apply RoPE to input tensor x"""
-        x_even = x[..., ::2]  # [batch, seq_len, heads, head_dim//2]
-        x_odd = x[..., 1::2]  # [batch, seq_len, heads, head_dim//2]
+        x_even = x[..., ::2]  # [batch, seq_len, heads, d_k//2]
+        x_odd = x[..., 1::2]  # [batch, seq_len, heads, d_k//2]
         
-        cos_half = cos_freqs[..., ::2]  # [1, seq_len, 1, head_dim//2]
-        sin_half = sin_freqs[..., ::2]  # [1, seq_len, 1, head_dim//2]
+        cos_half = cos_freqs[..., ::2]  # [1, seq_len, 1, d_k//2]
+        sin_half = sin_freqs[..., ::2]  # [1, seq_len, 1, d_k//2]
         
         rotated_x_even = x_even * cos_half - x_odd * sin_half
         rotated_x_odd = x_even * sin_half + x_odd * cos_half
@@ -60,27 +57,27 @@ class MultiHeadAttention(layers.Layer):
     def __init__(self, d_model, num_heads, max_seq_len, dropout_rate, **kwargs):
         super().__init__(**kwargs)
         
-        if d_model % num_heads != 0:
-            raise ValueError('d_model must be divisible by num_heads')
-        
         self.d_model = d_model
         self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
+        self.d_k = d_model // num_heads
         self.max_seq_len = max_seq_len
         self.dropout_rate = dropout_rate
         
+        # Khởi tạo các lớp trọng số
         self.wq = layers.Dense(d_model, name="query")
         self.wk = layers.Dense(d_model, name="key")
         self.wv = layers.Dense(d_model, name="value")
         self.wo = layers.Dense(d_model, name="output")
         
-        self.rope = RotaryPositionalEmbedding(self.head_dim, max_seq_len)
-        
+        self.rope = RotaryPositionalEmbedding(self.d_k, max_seq_len)
+         
+        #
         mask = tf.linalg.band_part(tf.ones((max_seq_len, max_seq_len)), -1, 0)
         mask = tf.where(mask == 0, -1e9, 0.0)
         self.causal_mask = tf.Variable(mask, trainable=False, name="causal_mask")
     
     def call(self, x, training=False):
+        # lấy batch_size và seq_len từ x
         batch_size = tf.shape(x)[0]
         seq_len = tf.shape(x)[1]
         
@@ -88,22 +85,22 @@ class MultiHeadAttention(layers.Layer):
         k = self.wk(x)
         v = self.wv(x)
         
-        q = tf.reshape(q, (batch_size, seq_len, self.num_heads, self.head_dim))
-        k = tf.reshape(k, (batch_size, seq_len, self.num_heads, self.head_dim))
-        v = tf.reshape(v, (batch_size, seq_len, self.num_heads, self.head_dim))
+        q = tf.reshape(q, (batch_size, seq_len, self.num_heads, self.d_k))
+        k = tf.reshape(k, (batch_size, seq_len, self.num_heads, self.d_k))
+        v = tf.reshape(v, (batch_size, seq_len, self.num_heads, self.d_k))
         
         cos_freqs, sin_freqs = self.rope(seq_len)
-        cos_freqs = tf.reshape(cos_freqs, (1, seq_len, 1, self.head_dim))
-        sin_freqs = tf.reshape(sin_freqs, (1, seq_len, 1, self.head_dim))
+        cos_freqs = tf.reshape(cos_freqs, (1, seq_len, 1, self.d_k))
+        sin_freqs = tf.reshape(sin_freqs, (1, seq_len, 1, self.d_k))
         
         q = self.rope.apply_rope(q, cos_freqs, sin_freqs)
         k = self.rope.apply_rope(k, cos_freqs, sin_freqs)
         
-        q = tf.transpose(q, [0, 2, 1, 3])  # [batch, heads, seq_len, head_dim]
+        q = tf.transpose(q, [0, 2, 1, 3])  # [batch, num_heads, seq_len, d_k]
         k = tf.transpose(k, [0, 2, 1, 3])
         v = tf.transpose(v, [0, 2, 1, 3])
         
-        scores = tf.matmul(q, k, transpose_b=True) / tf.sqrt(tf.cast(self.head_dim, tf.float32))
+        scores = tf.matmul(q, k, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, tf.float32))
         
         causal_mask = self.causal_mask[:seq_len, :seq_len]
         scores += causal_mask
