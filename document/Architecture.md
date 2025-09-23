@@ -48,9 +48,15 @@
     $W_v$ [d_v, d_model]
     trong đó **d_q = d_k = d_v = d_model / num_heads**
 - Nhân nó với Embedding vector, kết quả sẽ là 3 vector Q, K, V.
-- Tính **score** bằng cách lấy Q nhân với K^T.
-- **Scale**: chia cho căn bậc 2 của d_k
+- Tích hợp RoPE (viết chi tiết hơn).
+- Tính **score** bằng cách lấy Q nhân với K^T rồi chia cho căn bậc 2 của d_k.
+- causal mask (viết chi tiết hơn).
 - Truyền qua Softmax, rồi nhân với V.
+- Reshape (viết chi tiết hơn).
+
+### Decoder block
+
+### Model (Decoder-only)
 
 ---
 
@@ -59,6 +65,10 @@
 ### Create dynamic batch
 
 - Chia data thành các batch. Với mỗi batch, lấy độ dài của seq dài nhất làm độ dài chung của cả batch rồi tiến hành padding theo độ dài đó.
+
+- Nhưng rồi 1 vấn đề xuất hiện, Dynamic padding sẽ làm xuất hiện nhiều shape khác nhau, khiến Tensorflow phải retrace nhiều lần, tạo ra nhiều graph mới, tốn ram. Idea là sẽ cố định một số mốc padding như 50,100,150,...
+
+- ==> Bucketing Padding.
 
 ### Split train/validation/test set
 
@@ -85,8 +95,6 @@
     * 
 
 ### Quá trình train
-
-- Đầu tiên
 
 ---
 

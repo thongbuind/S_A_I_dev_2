@@ -18,7 +18,7 @@ max_seq_len = config['max_seq_len']
 vocab_size = config['vocab_size']
 
 dataset = []
-with open(raw_dir / "pre_train.jsonl", "r", encoding="utf-8") as f:
+with open(raw_dir / "pretrain_data.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line:

@@ -53,7 +53,7 @@ def detokenize(tokens):
             words.append(word)
     return " ".join(words)
 
-def generate_response(sentence, max_new_tokens=max_seq_len, loss_margin=0.2):
+def generate_response(sentence, max_new_tokens=50, loss_margin=0.3):
     """
     Tạo phản hồi từ câu đầu vào:
         current_sequence = [BOS] + req
@@ -61,7 +61,7 @@ def generate_response(sentence, max_new_tokens=max_seq_len, loss_margin=0.2):
 
     Sampling strategy:
         - Chọn token có loss thấp nhất
-        - Tìm các token có loss không vượt quá best_loss + 0.2
+        - Tìm các token có loss không vượt quá best_loss + loss_margin
         - Random trong nhóm đó
     """
     req_tokens = tokenize(sentence)
