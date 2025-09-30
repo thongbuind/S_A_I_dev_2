@@ -98,58 +98,68 @@ def create_dataset(X, Y, lengths, batch_size, shuffle=False):
     X_tensor = tf.ragged.constant([x for x in X], dtype=tf.int32)
     Y_tensor = tf.ragged.constant([y for y in Y], dtype=tf.int32)
     lengths_tensor = tf.constant(lengths, dtype=tf.int32)
+    
+    if shuffle:
+        total_samples = len(X)
+        indices = tf.random.shuffle(tf.range(total_samples))
+        
+        X_tensor = tf.gather(X_tensor, indices)
+        Y_tensor = tf.gather(Y_tensor, indices)
+        lengths_tensor = tf.gather(lengths_tensor, indices)
+    
     log_progress("Đã convert sang tensors, đang tạo dataset...")
     
     ds = tf.data.Dataset.from_tensor_slices((X_tensor, Y_tensor, lengths_tensor))
+    
+    bucket_size = 20
 
-    def pad_batch(x, y, lengths):
+    def pad_batch(x_batch, y_batch, lengths):
         max_len = tf.reduce_max(lengths)
-
+    
         bucket = tf.cast(
-            tf.math.ceil(tf.cast(max_len, tf.float32) / 20.0) * 20.0,
+            tf.math.ceil(tf.cast(max_len, tf.float32) / tf.cast(bucket_size, tf.float32)) * tf.cast(bucket_size, tf.float32),
             tf.int32
         )
-
-        x_dense = x.to_tensor(default_value=0)
-        y_dense = y.to_tensor(default_value=0)
-
-        cur_len = tf.shape(x_dense)[1]
-        pad_len = tf.maximum(bucket - cur_len, 0)
-
-        x_padded = tf.pad(x_dense, [[0, 0], [0, pad_len]])
-        y_padded = tf.pad(y_dense, [[0, 0], [0, pad_len]])
-
-        return x_padded, y_padded
-
-    ds = tf.data.Dataset.from_tensor_slices((X_tensor, Y_tensor, lengths_tensor))
-
-    if shuffle:
-        ds = ds.shuffle(buffer_size=100)
-
+        
+        x_dense = x_batch.to_tensor(default_value=0)
+        y_dense = y_batch.to_tensor(default_value=0)
+        
+        current_len = tf.shape(x_dense)[1]
+        pad_len = tf.maximum(bucket - current_len, 0)
+        
+        x_padded = tf.pad(x_dense, [[0, 0], [0, pad_len]], constant_values=0)
+        y_padded = tf.pad(y_dense, [[0, 0], [0, pad_len]], constant_values=0)
+                
+        return x_padded, y_padded, lengths
+    
     ds = ds.batch(batch_size, drop_remainder=False)
-    ds = ds.map(pad_batch, num_parallel_calls=tf.data.AUTOTUNE)
-
+    ds = ds.map(
+        pad_batch, 
+        num_parallel_calls=tf.data.AUTOTUNE,
+        deterministic=not shuffle
+    )
+    
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     log_progress(f"Dataset được tạo với batch_size={batch_size}")
+
     return ds
 
-def evaluate_model(model, dataset):
-    """Evaluate model on a dataset"""
-    total_loss = 0.0
-    total_samples = 0
+# def evaluate_model(model, dataset):
+#     total_loss = 0.0
+#     total_samples = 0
     
-    for batch_X, batch_Y in dataset:
-        batch_X = tf.cast(batch_X, tf.int32)
-        batch_Y = tf.cast(batch_Y, tf.int32)
+#     for batch_X, batch_Y, sample_weights in dataset:
+#         batch_X = tf.cast(batch_X, tf.int32)
+#         batch_Y = tf.cast(batch_Y, tf.int32)
         
-        loss = model.test_on_batch(batch_X, batch_Y)
-        batch_size = tf.shape(batch_X)[0]
+#         loss = model.test_on_batch(batch_X, batch_Y, sample_weight=sample_weights)
+#         batch_size = tf.shape(batch_X)[0]
         
-        total_loss += float(loss) * int(batch_size)
-        total_samples += int(batch_size)
+#         total_loss += float(loss) * int(batch_size)
+#         total_samples += int(batch_size)
     
-    return total_loss / max(total_samples, 1)
+#     return total_loss / max(total_samples, 1)
 
 def train_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
 
@@ -221,9 +231,21 @@ def main():
     del X_test, Y_test, lengths_test
     gc.collect()
 
-    model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
+    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction="none")
+
+    def masked_loss(y_true, y_pred):
+        mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
+        loss = loss_object(y_true, y_pred)
+        loss *= mask
+        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
+
     optimizer = tf.keras.optimizers.Adam(learning_rate)
-    model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer)
+    model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
+    #model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer)
+    model.compile(
+        loss=masked_loss,
+        optimizer=optimizer
+    )
 
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                                 BẮT ĐẦU TRAINING                                   ║")
@@ -234,9 +256,9 @@ def main():
         model_folder=model_folder
     )
 
-    print(f"\nHoàn thành training!")
-    print(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
-    print(f"Test Loss cuối cùng: {final_test_loss:.4f}")
+    log_progress(f"Hoàn thành training!")
+    log_progress(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
+    log_progress(f"Test Loss cuối cùng: {final_test_loss:.4f}")
 
 if __name__ == "__main__":
     main()

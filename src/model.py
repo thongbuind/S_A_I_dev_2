@@ -24,11 +24,6 @@ class RotaryPositionalEmbedding(layers.Layer):
         self.sin_cached = tf.Variable(sin_freqs, trainable=False, name="sin_freqs")
     
     def call(self, seq_len):
-        tf.debugging.assert_less_equal(
-            seq_len, self.max_seq_len,
-            message=f"seq_len exceeds max_seq_len ({self.max_seq_len})"
-        )
-        
         cos_freqs = self.cos_cached[:seq_len, :]
         sin_freqs = self.sin_cached[:seq_len, :]
         
@@ -63,21 +58,18 @@ class MultiHeadAttention(layers.Layer):
         self.max_seq_len = max_seq_len
         self.dropout_rate = dropout_rate
         
-        # Khởi tạo các lớp trọng số
         self.wq = layers.Dense(d_model, name="query")
         self.wk = layers.Dense(d_model, name="key")
         self.wv = layers.Dense(d_model, name="value")
         self.wo = layers.Dense(d_model, name="output")
         
         self.rope = RotaryPositionalEmbedding(self.d_k, max_seq_len)
-         
-        #
+
         mask = tf.linalg.band_part(tf.ones((max_seq_len, max_seq_len)), -1, 0)
         mask = tf.where(mask == 0, -1e9, 0.0)
         self.causal_mask = tf.Variable(mask, trainable=False, name="causal_mask")
     
-    def call(self, x, training=False):
-        # lấy batch_size và seq_len từ x
+    def call(self, x, training=False, pad_mask=None):
         batch_size = tf.shape(x)[0]
         seq_len = tf.shape(x)[1]
         
@@ -102,8 +94,14 @@ class MultiHeadAttention(layers.Layer):
         
         scores = tf.matmul(q, k, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, tf.float32))
         
+        # causal mask
         causal_mask = self.causal_mask[:seq_len, :seq_len]
         scores += causal_mask
+        
+        if pad_mask is not None:
+            pad_mask = tf.cast(pad_mask, tf.float32)
+            pad_mask = pad_mask[:, tf.newaxis, tf.newaxis, :]
+            scores += (1.0 - pad_mask) * -1e9
         
         attention_weights = tf.nn.softmax(scores, axis=-1)
         
@@ -111,7 +109,6 @@ class MultiHeadAttention(layers.Layer):
             attention_weights = tf.nn.dropout(attention_weights, rate=self.dropout_rate)
         
         attention_output = tf.matmul(attention_weights, v)
-        
         attention_output = tf.transpose(attention_output, [0, 2, 1, 3])
         attention_output = tf.reshape(attention_output, (batch_size, seq_len, self.d_model))
         
@@ -147,8 +144,8 @@ class DecoderBlock(layers.Layer):
         self.dropout1 = layers.Dropout(dropout)
         self.dropout2 = layers.Dropout(dropout)
 
-    def call(self, x, training=False):
-        attn_output = self.mha(x, training=training)
+    def call(self, x, training=False, pad_mask=None):
+        attn_output = self.mha(x, training=training, pad_mask=pad_mask)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(x + attn_output)
 
@@ -176,25 +173,36 @@ class Model(models.Model):
         self.num_layers = num_layers
         self.ff_dim = ff_dim
         self.max_seq_len = max_seq_len
-        self.dropout = dropout
+        self.dropout_rate = dropout
 
-        self.token_embedding = layers.Embedding(input_dim=vocab_size, output_dim=d_model, mask_zero=True)
+        self.token_embedding = layers.Embedding(
+            input_dim=vocab_size, 
+            output_dim=d_model
+        )
 
         self.decoder_blocks = [
             DecoderBlock(d_model, num_heads, ff_dim, max_seq_len, dropout)
             for _ in range(num_layers)
         ]
         self.dropout_layer = layers.Dropout(dropout)
-        self.final_layer = layers.Dense(vocab_size, activation="softmax")
+        self.final_layer = layers.Dense(vocab_size)
 
     def call(self, inputs, training=False):
+        """
+        inputs: [batch_size, seq_len] - token IDs
+        """
+        # Tạo padding mask từ input (0 = padding)
+        pad_mask = tf.cast(tf.not_equal(inputs, 0), tf.float32)  # [batch, seq_len]
+        
         x = self.token_embedding(inputs)
         x = self.dropout_layer(x, training=training)
 
+        # Truyền pad_mask vào tất cả decoder blocks
         for block in self.decoder_blocks:
-            x = block(x, training=training)
+            x = block(x, training=training, pad_mask=pad_mask)
 
-        return self.final_layer(x)
+        logits = self.final_layer(x)
+        return logits
     
     def get_config(self):
         config = super().get_config()
@@ -205,6 +213,6 @@ class Model(models.Model):
             "num_layers": self.num_layers,
             "ff_dim": self.ff_dim,
             "max_seq_len": self.max_seq_len,
-            "dropout": self.dropout,
+            "dropout": self.dropout_rate,
         })
         return config
