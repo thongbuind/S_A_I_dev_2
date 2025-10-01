@@ -129,37 +129,19 @@ def create_dataset(X, Y, lengths, batch_size, shuffle=False):
         
         x_padded = tf.pad(x_dense, [[0, 0], [0, pad_len]], constant_values=0)
         y_padded = tf.pad(y_dense, [[0, 0], [0, pad_len]], constant_values=0)
-                
-        return x_padded, y_padded, lengths
+
+        sample_weight = tf.cast(tf.not_equal(y_padded, 0), tf.float32)
+
+        return x_padded, y_padded, sample_weight
     
-    ds = ds.batch(batch_size, drop_remainder=False)
-    ds = ds.map(
-        pad_batch, 
-        num_parallel_calls=tf.data.AUTOTUNE,
-        deterministic=not shuffle
-    )
+    ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.map(pad_batch, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not shuffle)
     
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     log_progress(f"Dataset được tạo với batch_size={batch_size}")
 
     return ds
-
-# def evaluate_model(model, dataset):
-#     total_loss = 0.0
-#     total_samples = 0
-    
-#     for batch_X, batch_Y, sample_weights in dataset:
-#         batch_X = tf.cast(batch_X, tf.int32)
-#         batch_Y = tf.cast(batch_Y, tf.int32)
-        
-#         loss = model.test_on_batch(batch_X, batch_Y, sample_weight=sample_weights)
-#         batch_size = tf.shape(batch_X)[0]
-        
-#         total_loss += float(loss) * int(batch_size)
-#         total_samples += int(batch_size)
-    
-#     return total_loss / max(total_samples, 1)
 
 def train_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
 
@@ -231,19 +213,10 @@ def main():
     del X_test, Y_test, lengths_test
     gc.collect()
 
-    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction="none")
-
-    def masked_loss(y_true, y_pred):
-        mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
-        loss = loss_object(y_true, y_pred)
-        loss *= mask
-        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
-
     optimizer = tf.keras.optimizers.Adam(learning_rate)
     model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
-    #model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer)
     model.compile(
-        loss=masked_loss,
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
         optimizer=optimizer
     )
 

@@ -188,16 +188,11 @@ class Model(models.Model):
         self.final_layer = layers.Dense(vocab_size)
 
     def call(self, inputs, training=False):
-        """
-        inputs: [batch_size, seq_len] - token IDs
-        """
-        # Tạo padding mask từ input (0 = padding)
-        pad_mask = tf.cast(tf.not_equal(inputs, 0), tf.float32)  # [batch, seq_len]
+        pad_mask = tf.cast(tf.not_equal(inputs, 0), tf.float32)
         
         x = self.token_embedding(inputs)
         x = self.dropout_layer(x, training=training)
 
-        # Truyền pad_mask vào tất cả decoder blocks
         for block in self.decoder_blocks:
             x = block(x, training=training, pad_mask=pad_mask)
 
