@@ -18,7 +18,7 @@ max_seq_len = config['max_seq_len']
 vocab_size = config['vocab_size']
 
 dataset = []
-with open(raw_dir / "pretrain_data.jsonl", "r", encoding="utf-8") as f:
+with open(raw_dir / "shorted_data.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -36,8 +36,9 @@ with open(raw_dir / "pretrain_data.jsonl", "r", encoding="utf-8") as f:
 with open(raw_dir / "word.txt", "r", encoding="utf-8") as f:
     sample_words = {line.strip() for line in f if line.strip()}
 
-joined_data = " ".join(dataset)
-words_in_data = set(joined_data.split())
+words_in_data = set()
+for text in dataset:
+    words_in_data.update(text.split())
 valid_sample_words = sorted(sample_words & words_in_data)
 
 print(f"✅ Số từ mẫu còn lại sau khi đối chiếu với dữ liệu: {len(valid_sample_words)}")
@@ -83,7 +84,11 @@ else:
     print(f"✅ Vocab_size trong config đã đúng: {vocab_size}")
 
 X, Y, lengths = [], [], []
-for line in dataset:
+total_lines = len(dataset)
+for idx, line in enumerate(dataset):
+    if idx % 10000 == 0:
+        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
+
     encoded = tokenizer.encode(line)
     tokens = encoded.ids
 

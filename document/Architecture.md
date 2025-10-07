@@ -2,14 +2,14 @@
 
 ### Kích thước mô hình
 
-- **Embedding**: vocab_size × d_model = 10,000 × 64 = **640,000**  
-- **Attention (mỗi layer)**: 4 × d_model² = 4 × 64² = **16,384**  
-- **Feed Forward (mỗi layer)**: 2 × d_model × ff_dim = 2 × 64 × 256 = **32,768**  
-- **Tổng mỗi layer**: 16,384 + 32,768 = **49,152**  
-- **3 layer**: 3 × 49,152 = **147,456**  
-- **Output head**: d_model × vocab_size = 64 × 10,000 = **640,000**
+- **Embedding**: vocab_size × d_model = 10,000 × 128 = **1,280,000**  
+- **Attention (mỗi layer)**: 4 × d_model² = 4 × 128² = **65,536**  
+- **Feed Forward (mỗi layer)**: 2 × d_model × ff_dim = 2 × 128 × 512 = **131,072**  
+- **Tổng mỗi layer**: 65,536 + 131,072 = **196,608**  
+- **3 layer**: 3 × 196,608 = **589,824**  
+- **Output head**: d_model × vocab_size = 128 × 10,000 = **1,280,000**
 
-**Tổng tham số:** 640,000 + 147,456 + 640,000 = **1,427,456**
+**Tổng tham số:** 1,280,000 + 589,824 + 1,280,000 = **3,149,824**
 
 ### Cách xây dựng
 - Thiết kế Rotary Positional Embedding (RoPE), Multi-heads Attention sử dụng RoPE, mô hình decoder-only.

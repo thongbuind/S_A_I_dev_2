@@ -94,7 +94,6 @@ class MultiHeadAttention(layers.Layer):
         
         scores = tf.matmul(q, k, transpose_b=True) / tf.sqrt(tf.cast(self.d_k, tf.float32))
         
-        # causal mask
         causal_mask = self.causal_mask[:seq_len, :seq_len]
         scores += causal_mask
         
@@ -211,3 +210,4 @@ class Model(models.Model):
             "dropout": self.dropout_rate,
         })
         return config
+    
