@@ -54,7 +54,7 @@ def log_memory_usage(note="", top_k=20):
     except Exception:
         pass
 
-def load_data():
+def load_pretrain_data():
     """Load configuration and data"""    
     data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "data_ids.npz"
     data = np.load(data_tokenized_path, allow_pickle=True)
@@ -182,7 +182,7 @@ def main():
     print("╔════════════════════════════════════════════════════════════════════════════════════╗")
     print("║                                 BẮT ĐẦU LOAD DATA                                  ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-    X, Y, lengths = load_data()
+    X, Y, lengths = load_pretrain_data()
     # log_memory_usage("Sau khi load data")
 
     with open(config_file, 'r') as f:
@@ -235,91 +235,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-# class CustomLRScheduler:
-#     """Custom learning rate scheduler with validation loss monitoring"""
-#     def __init__(self, model, val_dataset, patience=3, factor=0.5, min_lr=1e-6):
-#         self.model = model
-#         self.val_dataset = val_dataset
-#         self.patience = patience
-#         self.factor = factor
-#         self.min_lr = min_lr
-#         self.best_val_loss = float('inf')
-#         self.wait = 0
-#         self.current_lr = float(model.optimizer.learning_rate)
-        
-#     def on_epoch_end(self, epoch):
-#         """Called at the end of each epoch"""
-#         val_loss = evaluate_model(self.model, self.val_dataset)
-        
-#         if val_loss < self.best_val_loss:
-#             self.best_val_loss = val_loss
-#             self.wait = 0
-#         else:
-#             self.wait += 1
-            
-#         if self.wait >= self.patience:
-#             old_lr = self.current_lr
-#             self.current_lr = max(self.current_lr * self.factor, self.min_lr)
-#             if self.current_lr < old_lr:
-#                 print(f"║ Giảm learning rate từ {old_lr:.6f} xuống {self.current_lr:.6f} ║")
-#                 tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.current_lr)
-#                 self.wait = 0
-        
-#         return val_loss
-#
-# def train_model_old(model, train_ds, val_ds, test_ds, epochs=10, model_folder=None, log_every_n_steps=10):
-#     lr_scheduler = CustomLRScheduler(model, val_ds)
-
-#     for epoch in range(1, epochs + 1):
-#         log_progress(f" ===== Epoch {epoch}/{epochs} =====")
-#         epoch_loss = 0.0
-#         steps = 0
-
-#         # Training phase
-#         for step, (batch_X, batch_Y) in enumerate(train_ds, start=1):
-#             # Memory logging
-#             # if step % log_every_n_steps == 0:
-#             #     log_memory_usage(f"Training step {step} (epoch {epoch})")
-#             #     try:
-#             #         details = tf.config.experimental.get_memory_info('GPU:0')
-#             #         print(f"[GPU] Current: {details['current']/1024**2:.2f} MB, Peak: {details['peak']/1024**2:.2f} MB")
-#             #     except Exception:
-#             #         pass
-
-#             # Ensure correct dtypes
-#             batch_X = tf.cast(batch_X, tf.int32)
-#             batch_Y = tf.cast(batch_Y, tf.int32)
-
-#             loss = model.train_on_batch(batch_X, batch_Y)
-#             epoch_loss += float(loss)
-#             steps += 1
-
-#             # Periodic garbage collection
-#             if step % 50 == 0:
-#                 gc.collect()
-
-#         avg_train_loss = epoch_loss / max(1, steps)
-#         log_progress(f"Epoch {epoch} Train Loss: {avg_train_loss:.4f}")
-
-#         val_loss = lr_scheduler.on_epoch_end(epoch)
-#         log_progress(f"Epoch {epoch} Val Loss: {val_loss:.4f}")
-
-#         if model_folder:
-#             model.save(model_folder / "s_a_i.keras")
-#             log_progress(f"Model saved at epoch {epoch}")
-
-#     print("╠════════════════════════════════════════════════════════════════╣")
-#     print("║                     ĐÁNH GIÁ TRÊN TEST SET                     ║")
-#     print("╠════════════════════════════════════════════════════════════════╣")
-#     test_loss = evaluate_model(model, test_ds)
-#     print(f"║ Final Test Loss: {test_loss:.4f}                               ║")
-#     print("╚════════════════════════════════════════════════════════════════╝")
-    
-#     return test_loss

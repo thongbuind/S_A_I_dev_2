@@ -1,5 +1,4 @@
 import json
-import numpy as np
 from pathlib import Path
 from tokenizers import Tokenizer, trainers, models
 from tokenizers.normalizers import NFD, Lowercase, Sequence
@@ -82,36 +81,3 @@ if actual_vocab_size != vocab_size:
     print(f"✅ Đã cập nhật config.json với vocab_size = {actual_vocab_size}")
 else:
     print(f"✅ Vocab_size trong config đã đúng: {vocab_size}")
-
-X, Y, lengths = [], [], []
-total_lines = len(dataset)
-for idx, line in enumerate(dataset):
-    if idx % 10000 == 0:
-        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
-
-    encoded = tokenizer.encode(line)
-    tokens = encoded.ids
-
-    if len(tokens) < 2 or len(tokens) + 2 > max_seq_len:
-        continue
-
-    inp = [vocab["[BOS]"]] + tokens
-    tgt = tokens + [vocab["[EOS]"]]
-    
-    X.append(inp)
-    Y.append(tgt)
-    lengths.append(len(inp))
-
-print(f"\n📊 THỐNG KÊ DỮ LIỆU:")
-print(f"📊 Tổng số mẫu: {len(X)}")
-print(f"📈 Độ dài sequence trung bình: {np.mean(lengths):.2f}")
-print(f"📉 Độ dài sequence min/max: {min(lengths)}/{max(lengths)}")
-
-np.savez_compressed(
-    processed_dir / "data_ids.npz",
-    X=np.array(X, dtype=object),
-    Y=np.array(Y, dtype=object),
-    lengths=np.array(lengths)
-)
-
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/data_ids.npz")
