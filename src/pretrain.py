@@ -56,7 +56,7 @@ def log_memory_usage(note="", top_k=20):
 
 def load_pretrain_data():
     """Load configuration and data"""    
-    data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "data_ids.npz"
+    data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "pretrain_data_ids.npz"
     data = np.load(data_tokenized_path, allow_pickle=True)
 
     X = data["X"]
@@ -68,7 +68,6 @@ def load_pretrain_data():
     return X, Y, lengths
 
 def split_train_val_test(X, Y, lengths, train_ratio, val_ratio, seed=54):
-    """Split data into train, validation, and test sets"""
     total = len(X)
     rng = np.random.default_rng(seed)
     indices = rng.permutation(total)
@@ -136,15 +135,13 @@ def create_dataset(X, Y, lengths, batch_size, shuffle=False):
     
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.map(pad_batch, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not shuffle)
-    
     ds = ds.prefetch(tf.data.AUTOTUNE)
 
     log_progress(f"Dataset được tạo với batch_size={batch_size}")
 
     return ds
 
-def train_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
-
+def pretrain_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
     lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6, verbose=1
     )
@@ -178,60 +175,56 @@ def train_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
 
     return test_loss
 
-def main():
-    print("╔════════════════════════════════════════════════════════════════════════════════════╗")
-    print("║                                 BẮT ĐẦU LOAD DATA                                  ║")
-    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-    X, Y, lengths = load_pretrain_data()
-    # log_memory_usage("Sau khi load data")
+print("╔════════════════════════════════════════════════════════════════════════════════════╗")
+print("║                                 BẮT ĐẦU LOAD DATA                                  ║")
+print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+X, Y, lengths = load_pretrain_data()
+# log_memory_usage("Sau khi load data")
 
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    vocab_size = config['vocab_size']
-    max_seq_len = config['max_seq_len']
-    d_model = config['d_model']
-    num_heads = config['num_heads']
-    num_layers = config['num_layers']
-    ff_dim = config['ff_dim']
-    dropout = config['dropout']
-    epochs = config['epochs']
-    batch_size = config['batch_size']
-    train_ratio = config['train_ratio']
-    val_ratio = config['val_ratio']
-    learning_rate = config['learning_rate']
+with open(config_file, 'r') as f:
+    config = json.load(f)
+vocab_size = config['vocab_size']
+max_seq_len = config['max_seq_len']
+d_model = config['d_model']
+num_heads = config['num_heads']
+num_layers = config['num_layers']
+ff_dim = config['ff_dim']
+dropout = config['dropout']
+epochs = config['epochs']
+batch_size = config['batch_size']
+train_ratio = config['train_ratio']
+val_ratio = config['val_ratio']
+learning_rate = config['learning_rate']
 
-    X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
-    log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
-    train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
-    val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
-    test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
-    # log_memory_usage("Sau khi tạo train/val/test dataset")
+X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
+train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
+val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
+test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
+# log_memory_usage("Sau khi tạo train/val/test dataset")
 
-    del X, Y, lengths
-    del X_train, Y_train, lengths_train
-    del X_val, Y_val, lengths_val  
-    del X_test, Y_test, lengths_test
-    gc.collect()
+del X, Y, lengths
+del X_train, Y_train, lengths_train
+del X_val, Y_val, lengths_val  
+del X_test, Y_test, lengths_test
+gc.collect()
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate)
-    model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
-    model.compile(
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
-        optimizer=optimizer
-    )
+optimizer = tf.keras.optimizers.Adam(learning_rate)
+model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
+model.compile(
+    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
+    optimizer=optimizer
+)
 
-    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-    print("║                                 BẮT ĐẦU TRAINING                                   ║")
-    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-    final_test_loss = train_model(
-        model, train_ds, val_ds, test_ds, 
-        epochs=epochs, 
-        model_folder=model_folder
-    )
+print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+print("║                                 BẮT ĐẦU TRAINING                                   ║")
+print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+final_test_loss = pretrain_model(
+    model, train_ds, val_ds, test_ds, 
+    epochs=epochs, 
+    model_folder=model_folder
+)
 
-    log_progress(f"Hoàn thành training!")
-    log_progress(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
-    log_progress(f"Test Loss cuối cùng: {final_test_loss:.4f}")
-
-if __name__ == "__main__":
-    main()
+log_progress(f"Hoàn thành training!")
+log_progress(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
+log_progress(f"Test Loss cuối cùng: {final_test_loss:.4f}")
