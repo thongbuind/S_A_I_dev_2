@@ -20,7 +20,7 @@ vocab = tokenizer.get_vocab()
 idx2word = {i: w for w, i in vocab.items()}
 
 pretrain_dataset = []
-with open(raw_dir / "shorted_data.jsonl", "r", encoding="utf-8") as f:
+with open(raw_dir / "pretrain_data_shorted.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -34,6 +34,49 @@ with open(raw_dir / "shorted_data.jsonl", "r", encoding="utf-8") as f:
             text = obj["text"].strip()
             if text:
                 pretrain_dataset.append(text)
+
+continued_pretrain_dataset = []
+with open(raw_dir / "continued_pretrain_data.jsonl", "r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as e:
+            continue
+
+        if isinstance(obj, dict) and "text" in obj:
+            text = obj["text"].strip()
+            if text:
+                continued_pretrain_dataset.append(text)
+
+X, Y, lengths = [], [], []
+total_lines = len(continued_pretrain_dataset)
+for idx, line in enumerate(continued_pretrain_dataset):
+    if idx % 10000 == 0:
+        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
+
+    encoded = tokenizer.encode(line)
+    tokens = encoded.ids
+
+    if len(tokens) < 2 or len(tokens) + 2 > max_seq_len:
+        continue
+
+    inp = [vocab["[BOS]"]] + tokens
+    tgt = tokens + [vocab["[EOS]"]]
+
+    X.append(inp)
+    Y.append(tgt)
+    lengths.append(len(inp))
+
+np.savez_compressed(
+    processed_dir / "continued_pretrain_ids.npz",
+    X=np.array(X, dtype=object),
+    Y=np.array(Y, dtype=object),
+    lengths=np.array(lengths)
+)
+print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/continued_pretrain_ids.npz")
 
 finetune_dataset = []
 with open(raw_dir / "finetune_data.jsonl", "r", encoding="utf-8") as f:
@@ -103,9 +146,9 @@ print(f"📈 Độ dài sequence trung bình: {np.mean(lengths):.2f}")
 print(f"📉 Độ dài sequence min/max: {min(lengths)}/{max(lengths)}")
 
 np.savez_compressed(
-    processed_dir / "pretrain_data_ids.npz",
+    processed_dir / "pretrain_data_shorted_ids.npz",
     X=np.array(X, dtype=object),
     Y=np.array(Y, dtype=object),
     lengths=np.array(lengths)
 )
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/pretrain_data_ids.npz")
+print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/pretrain_data_shorted_ids.npz")

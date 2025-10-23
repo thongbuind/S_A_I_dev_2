@@ -1,11 +1,11 @@
-import psutil, os, sys
+import sys
 import numpy as np
 import json
 import tensorflow as tf
 from model import Model
 from pathlib import Path
 import gc
-from pympler import asizeof
+from utils import load_data, log_progress, log_memory_usage
 
 current_file = Path(__file__).resolve()
 src_dir = current_file.parent
@@ -14,58 +14,9 @@ sys.path.append(str(project_root))
 config_file = project_root / "config" / "config.json"
 model_folder = project_root / "model"
 model_folder.mkdir(parents=True, exist_ok=True)
-
-def log_progress(text):
-    fixed_width = 82
-    formatted_text = f"║ {text:<{fixed_width}} ║"
-    print(formatted_text)
-
-def log_memory_usage(note="", top_k=20):
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    rss_in_mb = mem_info.rss / (1024 ** 2)
-    log_progress(f"[MEMORY] {note} | RSS RAM used: {rss_in_mb:.2f} MB")
-
-    all_objects = gc.get_objects()
-    var_sizes = []
-
-    for obj in all_objects:
-        try:
-            size = asizeof.asizeof(obj)
-            var_sizes.append((type(obj).__name__, size, repr(obj)[:80]))
-        except Exception:
-            continue
-
-    var_sizes.sort(key=lambda x: x[1], reverse=True)
-
-    log_progress(f"Top {top_k} Python objects by size:")
-    for typename, size, preview in var_sizes[:top_k]:
-        log_progress(f"  {typename:<25} {size/1024/1024:.2f} MB | {preview}")
-
-    try:
-        cpu_mem = tf.config.experimental.get_memory_info('CPU:0')
-        log_progress(f"[TF-Allocator][CPU] Current: {cpu_mem['current']/1024**2:.2f} MB | Peak: {cpu_mem['peak']/1024**2:.2f} MB")
-    except Exception:
-        pass
-
-    try:
-        gpu_mem = tf.config.experimental.get_memory_info('GPU:0')
-        log_progress(f"[TF-Allocator][GPU] Current: {gpu_mem['current']/1024**2:.2f} MB | Peak: {gpu_mem['peak']/1024**2:.2f} MB")
-    except Exception:
-        pass
-
-def load_pretrain_data():
-    """Load configuration and data"""    
-    data_tokenized_path = Path(__file__).parent.parent / "data" / "processed" / "pretrain_data_ids.npz"
-    data = np.load(data_tokenized_path, allow_pickle=True)
-
-    X = data["X"]
-    Y = data["Y"]
-    lengths = data["lengths"]
-
-    data.close()
-    
-    return X, Y, lengths
+data_processed_dir = project_root / "data" / "processed"
+pretrain_tokenized_file = data_processed_dir / "pretrain_data_shorted_ids.npz"
+continued_pretrain_tokenized_file = data_processed_dir / "continued_pretrain_ids.npz"
 
 def split_train_val_test(X, Y, lengths, train_ratio, val_ratio, seed=54):
     total = len(X)
@@ -141,14 +92,31 @@ def create_dataset(X, Y, lengths, batch_size, shuffle=False):
 
     return ds
 
-def pretrain_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
+def pretrain(model, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
+    print("╔════════════════════════════════════════════════════════════════════════════════════╗")
+    print("║                            BẮT ĐẦU LOAD PRETRAIN DATA                              ║")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+
+    X, Y, lengths = load_data("pretrain", pretrain_tokenized_file)
+    X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+    log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
+    train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
+    val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
+    test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
+
+    del X, Y, lengths
+    del X_train, Y_train, lengths_train
+    del X_val, Y_val, lengths_val  
+    del X_test, Y_test, lengths_test
+    gc.collect()
+
     lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6, verbose=1
     )
 
     log_callback = tf.keras.callbacks.LambdaCallback(
-        on_epoch_end=lambda epoch, logs: log_progress(
-            f"Epoch {epoch+1}/{epochs} Train Loss: {logs['loss']:.4f} Val Loss: {logs['val_loss']:.4f}"
+        on_epoch_end=lambda ep, logs: log_progress(
+            f"Epoch {ep+1}/{num_epochs} Train Loss: {logs['loss']:.4f} Val Loss: {logs['val_loss']:.4f}"
         )
     )
 
@@ -161,7 +129,7 @@ def pretrain_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
     history = model.fit(
         train_ds,
         validation_data=val_ds,
-        epochs=epochs,
+        epochs=num_epochs,
         callbacks=[lr_scheduler, log_callback, checkpoint_cb],
         verbose=1
     )
@@ -170,17 +138,63 @@ def pretrain_model(model, train_ds, val_ds, test_ds, epochs, model_folder):
     print("║                               ĐÁNH GIÁ TRÊN TEST SET                               ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     test_loss = model.evaluate(test_ds, verbose=0)
-    log_progress(f"Final Test Loss: {test_loss:.4f}")
-    print("╚════════════════════════════════════════════════════════════════════════════════════╝")
+    log_progress(f"Test Loss: {test_loss:.4f}")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
     return test_loss
 
-print("╔════════════════════════════════════════════════════════════════════════════════════╗")
-print("║                                 BẮT ĐẦU LOAD DATA                                  ║")
-print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-X, Y, lengths = load_pretrain_data()
-# log_memory_usage("Sau khi load data")
+def continued_pretrain(model, continued_pretrain_tokenized_file, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
+    print("╔════════════════════════════════════════════════════════════════════════════════════╗")
+    print("║                       BẮT ĐẦU LOAD CONTINUED PRETRAIN DATA                         ║")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
+    X, Y, lengths = load_data("continued_pretrain", continued_pretrain_tokenized_file, pretrain_tokenized_file)
+    X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+    log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
+    train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
+    val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
+    test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
+
+    del X, Y, lengths
+    del X_train, Y_train, lengths_train
+    del X_val, Y_val, lengths_val  
+    del X_test, Y_test, lengths_test
+    gc.collect()
+
+    lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6, verbose=1
+    )
+
+    log_callback = tf.keras.callbacks.LambdaCallback(
+        on_epoch_end=lambda ep, logs: log_progress(
+            f"Epoch {ep+1}/{num_epochs} Train Loss: {logs['loss']:.4f} Val Loss: {logs['val_loss']:.4f}"
+        )
+    )
+
+    checkpoint_cb = tf.keras.callbacks.ModelCheckpoint(
+        filepath=model_folder / "s_a_i.keras",
+        save_best_only=True,
+        verbose=1
+    )
+
+    history = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=num_epochs,
+        callbacks=[lr_scheduler, log_callback, checkpoint_cb],
+        verbose=1
+    )
+
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+    print("║                               ĐÁNH GIÁ TRÊN TEST SET                               ║")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+    test_loss = model.evaluate(test_ds, verbose=0)
+    log_progress(f"Test Loss: {test_loss:.4f}")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
+
+    return test_loss
+
+### MAIN
 with open(config_file, 'r') as f:
     config = json.load(f)
 vocab_size = config['vocab_size']
@@ -196,19 +210,6 @@ train_ratio = config['train_ratio']
 val_ratio = config['val_ratio']
 learning_rate = config['learning_rate']
 
-X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
-log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
-train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
-val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
-test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
-# log_memory_usage("Sau khi tạo train/val/test dataset")
-
-del X, Y, lengths
-del X_train, Y_train, lengths_train
-del X_val, Y_val, lengths_val  
-del X_test, Y_test, lengths_test
-gc.collect()
-
 optimizer = tf.keras.optimizers.Adam(learning_rate)
 model = Model(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout)
 model.compile(
@@ -219,12 +220,29 @@ model.compile(
 print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 print("║                                 BẮT ĐẦU TRAINING                                   ║")
 print("╠════════════════════════════════════════════════════════════════════════════════════╣")
-final_test_loss = pretrain_model(
-    model, train_ds, val_ds, test_ds, 
-    epochs=epochs, 
-    model_folder=model_folder
+
+pretrain_test_loss = pretrain(
+    model, 
+    pretrain_tokenized_file,
+    num_epochs=epochs, 
+    model_folder=model_folder,
+    train_ratio=train_ratio,
+    val_ratio=val_ratio,
+    batch_size=batch_size
+)
+
+continued_pretrain_test_loss = continued_pretrain(
+    model, 
+    continued_pretrain_tokenized_file, 
+    pretrain_tokenized_file,
+    num_epochs=epochs, 
+    model_folder=model_folder,
+    train_ratio=train_ratio,
+    val_ratio=val_ratio,
+    batch_size=batch_size
 )
 
 log_progress(f"Hoàn thành training!")
+log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
+log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
 log_progress(f"Đã lưu model cuối cùng vào: {model_folder / 's_a_i.keras'}")
-log_progress(f"Test Loss cuối cùng: {final_test_loss:.4f}")
