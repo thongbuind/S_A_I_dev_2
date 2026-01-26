@@ -186,7 +186,7 @@ TEST_CASES = [
             "lý nhật tôn",
             "lý thánh tông",
             "lý càn đức",
-            "lý nhân tông"
+            "lý nhân tông",
             "thái tổ trần thừa",
             "thái tông trần cảnh",
             "trần thái tông",
@@ -196,12 +196,16 @@ TEST_CASES = [
             "lê thái tổ",
             "lê thái tông",
             "thái tông hoàng đế lê nguyên long",
-            "lê thánh tông"
+            "lê thánh tông",
+            "nhà trần",
+            "nhà lý",
+            "nhà lê",
+            "nhà đinh"
         ],
         "groups": [
             "triều đại nhà đinh",
             "triều đại nhà lý",
-            "triều đại lê sơ",
+            "triều đại hậu lê",
             "triều đại nhà trần"
         ]
     },
@@ -223,11 +227,14 @@ TEST_CASES = [
             "lê thái tổ",
             "lê thái tông",
             "lê thánh tông",
+            "thánh tông thuần hoàng đế",
+            "thái tông văn hoàng đế",
             "lý thái tông",
             "thái tông lý phật mã",
             "lý thánh tông",
             "lý nhân tông",
-            "quang trung hoàng đế"
+            "quang trung hoàng đế",
+            "lê nhân tông",
         ],
         "groups": [
             "đinh bộ lĩnh",
@@ -237,6 +244,7 @@ TEST_CASES = [
             "trần thừa",
             "trần hoảng",
             "lê nguyên long",
+            "lê bang cơ",
             "lê tư thành",
             "lý càn đức",
             "lý nhật tôn",

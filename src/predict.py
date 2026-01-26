@@ -190,9 +190,10 @@ def generate_response(sentence, max_new_tokens=100, loss_margin=0.2, lookahead=5
 inputs = [
     # "xin chào",
     # "chào buổi sáng",
+    "hoàng",
     "Lê Lợi",
     "thái tổ cao hoàng đế",
-    "Đinh Tiên Hoàng",
+    "Đinh Tiên Hoàng tên thật là",
     "sau khi lên ngôi",
     "nhà trần",
     "nhà lý",

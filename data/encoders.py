@@ -71,7 +71,7 @@ for idx, line in enumerate(continued_pretrain_dataset):
     lengths.append(len(inp))
 
 np.savez_compressed(
-    processed_dir / "continued_pretrain_ids.npz",
+    processed_dir / "continued_pretrain_data_ids.npz",
     X=np.array(X, dtype=object),
     Y=np.array(Y, dtype=object),
     lengths=np.array(lengths)
