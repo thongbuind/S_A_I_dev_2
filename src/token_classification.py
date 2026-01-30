@@ -3,7 +3,6 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 import json
 import torch
 from pathlib import Path
-from sklearn.cluster import KMeans
 from collections import defaultdict
 from tokenizers import Tokenizer
 from model import TransformerModel
