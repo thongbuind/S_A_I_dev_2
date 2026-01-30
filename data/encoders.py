@@ -20,7 +20,7 @@ vocab = tokenizer.get_vocab()
 idx2word = {i: w for w, i in vocab.items()}
 
 pretrain_dataset = []
-with open(raw_dir / "shorted_data.jsonl", "r", encoding="utf-8") as f:
+with open(raw_dir / "pretrain_data.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -146,9 +146,9 @@ print(f"📈 Độ dài sequence trung bình: {np.mean(lengths):.2f}")
 print(f"📉 Độ dài sequence min/max: {min(lengths)}/{max(lengths)}")
 
 np.savez_compressed(
-    processed_dir / "pretrain_data_shorted_ids.npz",
+    processed_dir / "pretrain_data_ids.npz",
     X=np.array(X, dtype=object),
     Y=np.array(Y, dtype=object),
     lengths=np.array(lengths)
 )
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/pretrain_data_shorted_ids.npz")
+print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/pretrain_data_ids.npz")

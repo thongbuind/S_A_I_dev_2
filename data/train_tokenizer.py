@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from tokenizers import Tokenizer, trainers, models
-from tokenizers.normalizers import NFD, Lowercase, Sequence
+from tokenizers.normalizers import Lowercase, Sequence
 from tokenizers.pre_tokenizers import Whitespace
 
 current_file = Path(__file__).resolve()
@@ -17,7 +17,7 @@ max_seq_len = config['max_seq_len']
 vocab_size = config['vocab_size']
 
 dataset = []
-with open(raw_dir / "shorted_data.jsonl", "r", encoding="utf-8") as f:
+with open(raw_dir / "pretrain_data.jsonl", "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -44,7 +44,6 @@ print(f"✅ Số từ mẫu còn lại sau khi đối chiếu với dữ liệu:
 
 tokenizer = Tokenizer(models.BPE())
 tokenizer.normalizer = Sequence([
-    NFD(),
     Lowercase()
 ])
 

@@ -20,5 +20,6 @@ data/raw/continued_pretrain_data.jsonl
 data/raw/pretrain_data.jsonl
 data/raw/shorted_data.jsonl
 data/raw/finetune_data.jsonl
+data/raw/hoang_de.jsonl
 
 topic.md
