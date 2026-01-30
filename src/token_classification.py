@@ -100,7 +100,6 @@ def print_group_logs(grouped, all_groups, title="TEXT GROUPING RESULT"):
         print()
 
 def run_classification(model, texts, groups, title):
-    """Run a single classification test"""
     print("=" * 70)
     print(f"Running: {title}")
     print("=" * 70)
@@ -199,7 +198,10 @@ TEST_CASES = [
             "nhà trần",
             "nhà lý",
             "nhà lê",
-            "nhà đinh"
+            "nhà đinh",
+            "thời lý",
+            "thời trần",
+            "thời lê"
         ],
         "groups": [
             "triều đại nhà đinh",

@@ -14,7 +14,7 @@ project_root = src_dir.parent
 sys.path.append(str(project_root))
 config_file = project_root / "config" / "config.json"
 vocab_file = project_root / "data" / "vocab.txt"
-model_file = project_root / "model" / "s_a_i.pt"
+model_file = project_root / "model" / "pretrain.pt"
 processed_dir = project_root / "data" / "processed"
 
 # Load config
@@ -62,7 +62,7 @@ def pad_sequence(sequence, max_len, padding_value=0):
         return sequence[:max_len]
     return sequence + [padding_value] * (max_len - len(sequence))
 
-def generate_response_0(sentence, max_new_tokens=100, loss_margin=0.2):
+def generate_response_0(sentence, max_new_tokens=100, loss_margin=0.0):
     """
     Tạo phản hồi từ câu đầu vào:
         current_sequence = [BOS] + req
@@ -112,7 +112,7 @@ def generate_response_0(sentence, max_new_tokens=100, loss_margin=0.2):
 
     return detokenize(current_sequence[1:])
 
-def generate_response(sentence, max_new_tokens=100, loss_margin=0.2, lookahead=5):
+def generate_response(sentence, max_new_tokens=100, loss_margin=0.0, lookahead=10):
     req_tokens = tokenize(sentence)
     current_sequence = [vocab["[BOS]"]] + req_tokens
 
@@ -188,17 +188,29 @@ def generate_response(sentence, max_new_tokens=100, loss_margin=0.2, lookahead=5
 # ================
 
 inputs = [
-    # "xin chào",
-    # "chào buổi sáng",
-    "hoàng",
-    "Lê Lợi",
-    "thái tổ cao hoàng đế",
-    "Đinh Tiên Hoàng tên thật là",
+    "lý thái tông là con trai của",
+    "hoàng đế thứ hai của triều đại nhà lý là",
+    "đại thắng minh hoàng đế có tên huý là",
+    "lý công uẩn có miếu hiệu là",
+    "huý của lý thái tổ là",
+    "lý phật mã là tên thật của hoàng đế",
+    "lý thái tông là",
+    "thánh tông hoàng đế của triều đại nhà lý là",
+    "sau khi băng hà, lý càn đức được truy tôn miếu hiệu",
+    "trần thái tổ có huý là",
+    "trần cảnh là hoàng đế",
+    "trần thái tông là miếu hiệu của",
+    "trần thánh tông là",
+    "miếu hiệu của hoàng đế trần hoảng là",
+    "thái tổ cao hoàng đế là thuỵ hiệu của",
+    "thái tông văn hoàng đế tên thật là",
+    "lê bang cơ có miếu hiệu là",
+    "lê tư thành là",
+    "thánh tông thuần hoàng đế là",
     "sau khi lên ngôi",
     "nhà trần",
     "nhà lý",
     "triều đại hậu lê",
-    "việt nam",
     "việt nam sở hữu",
     "phở",
     "bánh mì",
@@ -208,6 +220,7 @@ inputs = [
     "leclerc",
     "manchester",
     "vào buổi tối",
+    "sáng hôm ấy",
     "sau khi ăn xong, chúng tôi",
 ]
 
@@ -215,6 +228,6 @@ print("\n=== Test pre-train ===")
 i = 1
 for req in inputs:
     print(f"Req {i}: {req}")
-    print(f"Res {i}.prev: {generate_response_0(req)}")
+    # print(f"Res {i}.prev: {generate_response_0(req)}")
     print(f"Res {i}.current: {generate_response(req)}\n")
     i += 1

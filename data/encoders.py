@@ -55,7 +55,7 @@ X, Y, lengths = [], [], []
 total_lines = len(continued_pretrain_dataset)
 for idx, line in enumerate(continued_pretrain_dataset):
     if idx % 10000 == 0:
-        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
+        print(f"📄 Đang xử lý dòng {idx}/{total_lines}...")
 
     encoded = tokenizer.encode(line)
     tokens = encoded.ids
@@ -86,46 +86,83 @@ with open(raw_dir / "finetune_data.jsonl", "r", encoding="utf-8") as f:
             continue
         try:
             obj = json.loads(line)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             continue
 
-        if isinstance(obj, dict) and "input" and "response" in obj:
-            input = obj["input"].strip()
-            response = obj["response"].strip()
-            if input and response:
-                finetune_dataset.append({"input": input, "response": response})
-            
-input, response, input_lengths, response_lengths = [], [], [], []
+        if not isinstance(obj, dict):
+            continue
+
+        instruction = obj.get("instruction", "").strip()
+        input_text = obj.get("input", "").strip()
+        output_text = obj.get("output", "").strip()
+
+        if not instruction or not output_text:
+            continue
+
+        finetune_dataset.append({
+            "instruction": instruction,
+            "input": input_text,
+            "output": output_text
+        })
+
+X, Y, loss_mask, lengths = [], [], [], []
 total_lines = len(finetune_dataset)
-for idx, line in enumerate(finetune_dataset):
+
+USER = vocab["<|user|>"]
+SAI = vocab["<|s.a.i|>"]
+BOS = vocab["[BOS]"]
+EOS = vocab["[EOS]"]
+
+for idx, sample in enumerate(finetune_dataset):
     if idx % 10000 == 0:
-        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
+        print(f"📄 Đang xử lý dòng {idx}/{total_lines}...")
 
-    input_tokens = tokenizer.encode(line["input"]).ids
-    response_tokens = tokenizer.encode(line["response"]).ids
+    if sample["input"]:
+        prompt = (
+            "Instruction: " + sample["instruction"] +
+            " Input: " + sample["input"]
+        )
+    else:
+        prompt = "Instruction: " + sample["instruction"]
 
-    inp = [vocab["[BOS]"]] + input_tokens
-    res = input_tokens + [vocab["[SEP]"]] + response_tokens + [vocab["[EOS]"]]
+    prompt_ids = tokenizer.encode(prompt).ids
+    output_ids = tokenizer.encode(sample["output"]).ids
 
-    input.append(inp)
-    response.append(res)
-    input_lengths.append(len(inp))
-    response_lengths.append(len(res))
+    input_ids = ([BOS] + [USER] + prompt_ids + [SAI] + output_ids + [EOS])
+
+    if len(input_ids) > max_seq_len:
+        continue
+
+    target_ids = input_ids[1:]
+
+    mask = (
+        [0] * (1 + len(prompt_ids) + 1) +  # USER + prompt + SAI
+        [1] * (len(output_ids) + 1)         # output + EOS
+    )
+    
+    assert len(mask) == len(target_ids), \
+        f"Mask length mismatch: mask={len(mask)}, target={len(target_ids)}"
+
+    X.append(input_ids)
+    Y.append(target_ids)
+    loss_mask.append(mask)
+    lengths.append(len(input_ids))
 
 np.savez_compressed(
     processed_dir / "finetune_data_ids.npz",
-    input = np.array(input, dtype=object),
-    response = np.array(response, dtype=object),
-    input_lengths = np.array(input_lengths, dtype=np.int32),
-    response_lengths = np.array(response_lengths, dtype=np.int32)
+    X=np.array(X, dtype=object),
+    Y=np.array(Y, dtype=object),
+    loss_mask=np.array(loss_mask, dtype=object),
+    lengths=np.array(lengths, dtype=np.int32)
 )
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/finetune_data_ids.npz")
+
+print(f"✅ Đã lưu dữ liệu finetune đúng format vào: {processed_dir}/finetune_data_ids.npz")
 
 X, Y, lengths = [], [], []
 total_lines = len(pretrain_dataset)
 for idx, line in enumerate(pretrain_dataset):
     if idx % 10000 == 0:
-        print(f"🔄 Đang xử lý dòng {idx}/{total_lines}...")
+        print(f"📄 Đang xử lý dòng {idx}/{total_lines}...")
 
     encoded = tokenizer.encode(line)
     tokens = encoded.ids

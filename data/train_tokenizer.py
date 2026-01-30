@@ -55,7 +55,7 @@ trainer = trainers.BpeTrainer(
     vocab_size=vocab_size,
     min_frequency=2,
     initial_alphabet=initial_alphabet,
-    special_tokens=["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", "[BOS]", "[EOS]"]
+    special_tokens=["[PAD]", "[UNK]", "<|user|>", "<|s.a.i|>", "[MASK]", "[BOS]", "[EOS]"]
 )
 
 tokenizer.train_from_iterator(dataset, trainer=trainer)

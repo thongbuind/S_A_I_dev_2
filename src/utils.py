@@ -1,9 +1,136 @@
 import numpy as np
 import gc
-# import torch
-# import psutil
-# import os
-# from pympler import asizeof
+import torch
+
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, X, Y, lengths, indices, loss_masks=None):
+        self.X = X
+        self.Y = Y
+        self.lengths = lengths
+        self.indices = indices
+        self.loss_masks = loss_masks
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        real_idx = self.indices[idx]
+        if self.loss_masks is not None:
+            return (
+                self.X[real_idx],
+                self.Y[real_idx],
+                self.lengths[real_idx],
+                real_idx  # Trả về index để collate_fn lấy loss_mask
+            )
+        else:
+            return (
+                self.X[real_idx],
+                self.Y[real_idx],
+                self.lengths[real_idx],
+                real_idx
+            )
+
+def split_train_val_test(X, Y, loss_masks, lengths, train_ratio, val_ratio, seed=54):
+    """
+    Sửa lỗi: Thêm loss_masks vào input và output
+    """
+    total_sample = len(X)
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(total_sample)
+
+    train_end = int(total_sample * train_ratio)
+    val_end = int(total_sample * (train_ratio + val_ratio))
+
+    train_idx = indices[:train_end]
+    val_idx = indices[train_end:val_end]
+    test_idx = indices[val_end:]
+
+    X_train, Y_train, lengths_train = X[train_idx], Y[train_idx], lengths[train_idx]
+    X_val, Y_val, lengths_val = X[val_idx], Y[val_idx], lengths[val_idx]
+    X_test, Y_test, lengths_test = X[test_idx], Y[test_idx], lengths[test_idx]
+    
+    # Xử lý loss_masks nếu có
+    if loss_masks is not None:
+        mask_train = loss_masks[train_idx]
+        mask_val = loss_masks[val_idx]
+        mask_test = loss_masks[test_idx]
+        
+        return (X_train, Y_train, mask_train, lengths_train, 
+                X_val, Y_val, mask_val, lengths_val, 
+                X_test, Y_test, mask_test, lengths_test)
+    else:
+        # Pretrain không có loss_mask
+        return (X_train, Y_train, None, lengths_train,
+                X_val, Y_val, None, lengths_val,
+                X_test, Y_test, None, lengths_test)
+
+def create_dataset(X, Y, lengths, batch_size, shuffle, loss_masks=None):
+    log_progress(f"Đang tạo dataset từ {len(X)} samples...")
+    indices = np.arange(len(X))
+    dataset = Dataset(X, Y, lengths, indices, loss_masks)
+    bucket_size = 20
+    PAD_ID = 0
+
+    def collate_fn(batch):
+        X_batch = [item[0] for item in batch]
+        Y_batch = [item[1] for item in batch]
+        idx_batch = [item[3] for item in batch]
+
+        max_len = max(len(x) for x in X_batch)
+        bucket = int(np.ceil(max_len / bucket_size) * bucket_size)
+
+        bsz = len(X_batch)
+        X_padded = torch.zeros((bsz, bucket), dtype=torch.long)
+        Y_padded = torch.zeros((bsz, bucket), dtype=torch.long)
+
+        if loss_masks is not None:
+            loss_mask_padded = torch.zeros((bsz, bucket), dtype=torch.float)
+
+        for i, (x, y) in enumerate(zip(X_batch, Y_batch)):
+            x_len = len(x)
+            y_len = len(y)
+
+            X_padded[i, :x_len] = torch.as_tensor(x, dtype=torch.long)
+            Y_padded[i, :y_len] = torch.as_tensor(y, dtype=torch.long)
+
+            if loss_masks is not None:
+                lm = loss_masks[idx_batch[i]]
+                lm_len = len(lm)
+                loss_mask_padded[i, :lm_len] = torch.as_tensor(lm, dtype=torch.float)
+
+        attention_mask = (X_padded != PAD_ID).float()
+
+        if loss_masks is None:
+            sample_weight = (Y_padded != PAD_ID).float()
+        else:
+            sample_weight = loss_mask_padded
+
+        return X_padded, Y_padded, sample_weight, attention_mask
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn,
+        num_workers=1,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=False,
+        drop_last=True
+    )
+
+    log_progress(f"Dataset được tạo với batch_size={batch_size}")
+    return dataloader
+
+def get_step_lr_lambda(warmup_steps, total_steps):
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        elif current_step < total_steps * 0.7:
+            return 1.0
+        else:
+            progress = (current_step - total_steps * 0.7) / (total_steps * 0.3)
+            return max(0.1, 1.0 - 0.9 * progress)
+    return lr_lambda
 
 def load_data(data_type, path_1, path_2=None):
     if data_type == "pretrain":
@@ -55,12 +182,12 @@ def load_data(data_type, path_1, path_2=None):
 
     elif data_type == "finetune":
         data = np.load(path_1, allow_pickle=True)
-        input = data["input"]
-        response = data["response"]
-        input_lengths = data["input_lengths"]
-        response_lengths = data["response_lengths"]
+        X = data["X"]
+        Y = data["Y"]
+        loss_mask = data["loss_mask"]
+        lengths = data["lengths"]
         data.close()
-        return input, response, input_lengths, response_lengths
+        return X, Y, loss_mask, lengths
 
     else:
         raise ValueError(f"Unknown data_type: {data_type}")
@@ -69,42 +196,3 @@ def log_progress(text):
     fixed_width = 82
     formatted_text = f"║ {text:<{fixed_width}} ║"
     print(formatted_text)
-
-# def log_memory_usage(note="", top_k=20):
-#     process = psutil.Process(os.getpid())
-#     mem_info = process.memory_info()
-#     rss_in_mb = mem_info.rss / (1024 ** 2)
-#     log_progress(f"[MEMORY] {note} | RSS RAM used: {rss_in_mb:.2f} MB")
-
-#     all_objects = gc.get_objects()
-#     var_sizes = []
-
-#     for obj in all_objects:
-#         try:
-#             size = asizeof.asizeof(obj)
-#             var_sizes.append((type(obj).__name__, size, repr(obj)[:80]))
-#         except Exception:
-#             continue
-
-#     var_sizes.sort(key=lambda x: x[1], reverse=True)
-
-#     log_progress(f"Top {top_k} Python objects by size:")
-#     for typename, size, preview in var_sizes[:top_k]:
-#         log_progress(f"  {typename:<25} {size/1024/1024:.2f} MB | {preview}")
-
-#     try:
-#         cpu_tensors = [obj for obj in gc.get_objects() if torch.is_tensor(obj) and obj.device.type == 'cpu']
-#         cpu_mem_mb = sum(obj.element_size() * obj.nelement() for obj in cpu_tensors) / (1024 ** 2)
-#         log_progress(f"[PyTorch][CPU] Tensors memory: {cpu_mem_mb:.2f} MB | Count: {len(cpu_tensors)}")
-#     except Exception:
-#         pass
-
-#     if torch.cuda.is_available():
-#         try:
-#             for i in range(torch.cuda.device_count()):
-#                 allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)
-#                 reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)
-#                 max_allocated = torch.cuda.max_memory_allocated(i) / (1024 ** 2)
-#                 log_progress(f"[PyTorch][GPU:{i}] Allocated: {allocated:.2f} MB | Reserved: {reserved:.2f} MB | Peak: {max_allocated:.2f} MB")
-#         except Exception:
-#             pass

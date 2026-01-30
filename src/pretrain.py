@@ -1,12 +1,11 @@
 from pathlib import Path
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import json
 import gc
 import sys
-from utils import log_progress, load_data
+from utils import split_train_val_test, get_step_lr_lambda, create_dataset, log_progress, load_data
 from model import TransformerModel
 
 current_file = Path(__file__).resolve()
@@ -19,138 +18,38 @@ src_dir = project_root / "src"
 config_file = config_dir / "config.json"
 model_dir.mkdir(parents=True, exist_ok=True)
 data_processed_dir = project_root / "data" / "processed"
-pretrain_tokenized_file = data_processed_dir / "pretrain_data_shorted_ids.npz"
+pretrain_tokenized_file = data_processed_dir / "pretrain_data_ids.npz"
 continued_pretrain_tokenized_file = data_processed_dir / "continued_pretrain_data_ids.npz"
 
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, X, Y, lengths, indices):
-        self.X = X
-        self.Y = Y
-        self.lengths = lengths
-        self.indices = indices
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        real_idx = self.indices[idx]
-        return (
-            self.X[real_idx],
-            self.Y[real_idx],
-            self.lengths[real_idx]
-        )
-
-def split_train_val_test(X, Y, lengths, train_ratio, val_ratio, seed=54):
-    """Giống hệt TF version"""
-    total_sample = len(X)
-    rng = np.random.default_rng(seed)
-    indices = rng.permutation(total_sample)
-
-    train_end = int(total_sample * train_ratio)
-    val_end = int(total_sample * (train_ratio + val_ratio))
-
-    train_idx = indices[:train_end]
-    val_idx = indices[train_end:val_end]
-    test_idx = indices[val_end:]
-
-    X_train, Y_train, lengths_train = X[train_idx], Y[train_idx], lengths[train_idx]
-    X_val, Y_val, lengths_val = X[val_idx], Y[val_idx], lengths[val_idx]
-    X_test, Y_test, lengths_test = X[test_idx], Y[test_idx], lengths[test_idx]
-    
-    return (X_train, Y_train, lengths_train, 
-            X_val, Y_val, lengths_val, 
-            X_test, Y_test, lengths_test)
-
-def create_dataset(X, Y, lengths, batch_size, shuffle):
-    """
-    Chuyển từ tf.data.Dataset sang torch.utils.data.DataLoader
-    Giữ nguyên logic: RaggedTensor → Bucket padding → Prefetch
-    """
-    log_progress(f"Đang tạo dataset từ {len(X)} samples...")
-    indices = np.arange(len(X))
-    log_progress("Đã convert sang tensors, đang tạo dataset...")
-
-    dataset = Dataset(X, Y, lengths, indices)
-
-    bucket_size = 20
-
-    def collate_fn(batch):
-        """
-        Tương đương TF's pad_batch function
-        Input: list of (x, y, length)
-        Output: (x_padded, y_padded, sample_weight, attention_mask)
-        """
-        X_batch = [item[0] for item in batch]
-        Y_batch = [item[1] for item in batch]
-        lengths_batch = [item[2] for item in batch]
-        
-        # Tương đương tf.reduce_max(lengths)
-        max_len = max(len(x) for x in X_batch)
-        
-        # Tương đương TF's bucket calculation
-        bucket = int(np.ceil(max_len / bucket_size) * bucket_size)
-        
-        # Convert sang tensor và pad - tương đương x_batch.to_tensor() + tf.pad()
-        X_padded = torch.stack([
-            torch.nn.functional.pad(
-                torch.tensor(x, dtype=torch.long),
-                (0, bucket - len(x)),
-                value=0
-            ) for x in X_batch
-        ])
-        
-        Y_padded = torch.stack([
-            torch.nn.functional.pad(
-                torch.tensor(y, dtype=torch.long),
-                (0, bucket - len(y)),
-                value=0
-            ) for y in Y_batch
-        ])
-        
-        sample_weight = (Y_padded != 0).float()
-        
-        attention_mask = (X_padded != 0).float()
-        
-        return X_padded, Y_padded, sample_weight, attention_mask
-    
-    dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=batch_size,
-        shuffle=shuffle,
-        collate_fn=collate_fn,
-        num_workers=2,
-        pin_memory=True,
-        persistent_workers=True,
-        drop_last=True
-    )
-
-    log_progress(f"Dataset được tạo với batch_size={batch_size}")
-    return dataloader
-
-def pretrain(model, optimizer, scheduler, device, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
-    """
-    Chuyển từ TF's model.fit() sang PyTorch manual training loop
-    Giữ nguyên logic callbacks: ReduceLROnPlateau, LambdaCallback, ModelCheckpoint
-    """
+def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
     print("╔════════════════════════════════════════════════════════════════════════════════════╗")
     print("║                            BẮT ĐẦU LOAD PRETRAIN DATA                              ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
     X, Y, lengths = load_data("pretrain", pretrain_tokenized_file)
-    X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+    # SỬA LỖI: Thêm None cho loss_masks vì pretrain không có
+    X_train, Y_train, _, lengths_train, X_val, Y_val, _, lengths_val, X_test, Y_test, _, lengths_test = split_train_val_test(X, Y, None, lengths, train_ratio, val_ratio)
     log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
     
     train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
     val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
     test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
 
-    del X_train, Y_train, lengths_train
-    del X_val, Y_val, lengths_val  
-    del X_test, Y_test, lengths_test
+    del X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test
     gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    total_steps = len(train_ds) * num_epochs
+    warmup_steps = len(train_ds) // 5
+    lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
 
     criterion = nn.CrossEntropyLoss(reduction='none')
     best_val_loss = float('inf')
+    global_step = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -159,36 +58,39 @@ def pretrain(model, optimizer, scheduler, device, pretrain_tokenized_file, num_e
         total_batches = len(train_ds)
         
         for batch_idx, (X_batch, Y_batch, sample_weight, attention_mask) in enumerate(train_ds):
-            X_batch = X_batch.to(device)
-            Y_batch = Y_batch.to(device)
-            sample_weight = sample_weight.to(device)
-            attention_mask = attention_mask.to(device)
+            X_batch = X_batch.to(device, non_blocking=True)
+            Y_batch = Y_batch.to(device, non_blocking=True)
+            sample_weight = sample_weight.to(device, non_blocking=True)
+            attention_mask = attention_mask.to(device, non_blocking=True)
             
             optimizer.zero_grad()
             
             outputs = model(X_batch, attention_mask=attention_mask)
-            
             loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
-            
-            assert loss_per_token.shape[0] == sample_weight.view(-1).shape[0], \
-                f"Shape mismatch: loss {loss_per_token.shape} vs weight {sample_weight.view(-1).shape}"
             
             num_valid_tokens = sample_weight.sum()
             loss = (loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8)
             
             loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
+            scheduler.step()
             
             train_loss += loss.item()
             batch_count += 1
+            global_step += 1
+            
+            current_lr = optimizer.param_groups[0]['lr']
             
             if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_batches:
                 avg_loss = train_loss / batch_count
-                if batch_idx == 0:
-                    log_progress(f"[DEBUG] Batch 1: valid_tokens={num_valid_tokens.item():.0f}, loss={loss.item():.4f}")
-                print(f"\rEpoch {epoch+1}/{num_epochs} - {batch_idx+1}/{total_batches} - loss: {avg_loss:.4f}", end='')
+                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {global_step}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
             
             del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
+            if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         print()
         train_loss /= len(train_ds)
@@ -197,10 +99,10 @@ def pretrain(model, optimizer, scheduler, device, pretrain_tokenized_file, num_e
         val_loss = 0.0
         with torch.no_grad():
             for X_batch, Y_batch, sample_weight, attention_mask in val_ds:
-                X_batch = X_batch.to(device)
-                Y_batch = Y_batch.to(device)
-                sample_weight = sample_weight.to(device)
-                attention_mask = attention_mask.to(device)
+                X_batch = X_batch.to(device, non_blocking=True)
+                Y_batch = Y_batch.to(device, non_blocking=True)
+                sample_weight = sample_weight.to(device, non_blocking=True)
+                attention_mask = attention_mask.to(device, non_blocking=True)
                 
                 outputs = model(X_batch, attention_mask=attention_mask)
                 loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
@@ -215,16 +117,13 @@ def pretrain(model, optimizer, scheduler, device, pretrain_tokenized_file, num_e
         
         log_progress(f"Epoch {epoch+1}/{num_epochs} Train Loss: {train_loss:.4f} Val Loss: {val_loss:.4f}")
         
-        old_lr = optimizer.param_groups[0]['lr']
-        scheduler.step(val_loss)
-        new_lr = optimizer.param_groups[0]['lr']
-        if new_lr < old_lr:
-            print(f"Epoch {epoch+1}: ReduceLROnPlateau reducing learning rate to {new_lr}.")
-        
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), model_folder / "s_a_i.pt")
-            print(f"Epoch {epoch+1}: val_loss improved from {best_val_loss:.5f} to {val_loss:.5f}, saving model to {model_folder / 's_a_i.pt'}")
+            torch.save(model.state_dict(), model_folder / "pretrained.pt")
+            print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model")
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                               ĐÁNH GIÁ TRÊN TEST SET                               ║")
@@ -254,27 +153,35 @@ def pretrain(model, optimizer, scheduler, device, pretrain_tokenized_file, num_e
 
     return test_loss
 
-def continued_pretrain(model, optimizer, scheduler, device, continued_pretrain_tokenized_file, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
-    """Giống hệt pretrain, chỉ khác data source"""
-    print("╔════════════════════════════════════════════════════════════════════════════════════╗")
+def continued_pretrain(model, optimizer, device, continued_pretrain_tokenized_file, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                       BẮT ĐẦU LOAD CONTINUED PRETRAIN DATA                         ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
     X, Y, lengths = load_data("continued_pretrain", continued_pretrain_tokenized_file, pretrain_tokenized_file)
-    X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test = split_train_val_test(X, Y, lengths, train_ratio, val_ratio)
+    # SỬA LỖI: Thêm None cho loss_masks
+    X_train, Y_train, _, lengths_train, X_val, Y_val, _, lengths_val, X_test, Y_test, _, lengths_test = split_train_val_test(X, Y, None, lengths, train_ratio, val_ratio)
     log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
     
     train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
     val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
     test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
 
-    del X_train, Y_train, lengths_train
-    del X_val, Y_val, lengths_val  
-    del X_test, Y_test, lengths_test
+    del X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test
     gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    total_steps = len(train_ds) * num_epochs
+    warmup_steps = len(train_ds) // 2
+    lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
 
     criterion = nn.CrossEntropyLoss(reduction='none')
     best_val_loss = float('inf')
+    global_step = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -283,30 +190,36 @@ def continued_pretrain(model, optimizer, scheduler, device, continued_pretrain_t
         total_batches = len(train_ds)
         
         for batch_idx, (X_batch, Y_batch, sample_weight, attention_mask) in enumerate(train_ds):
-            X_batch = X_batch.to(device)
-            Y_batch = Y_batch.to(device)
-            sample_weight = sample_weight.to(device)
-            attention_mask = attention_mask.to(device)
+            X_batch = X_batch.to(device, non_blocking=True)
+            Y_batch = Y_batch.to(device, non_blocking=True)
+            sample_weight = sample_weight.to(device, non_blocking=True)
+            attention_mask = attention_mask.to(device, non_blocking=True)
             
             optimizer.zero_grad()
             outputs = model(X_batch, attention_mask=attention_mask)
             
             loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
-            
             num_valid_tokens = sample_weight.sum()
             loss = (loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8)
             
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            scheduler.step()
             
             train_loss += loss.item()
             batch_count += 1
+            global_step += 1
+            
+            current_lr = optimizer.param_groups[0]['lr']
             
             if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_batches:
                 avg_loss = train_loss / batch_count
-                print(f"\rEpoch {epoch+1}/{num_epochs} - {batch_idx+1}/{total_batches} - loss: {avg_loss:.4f}", end='')
+                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {global_step}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
             
             del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
+            if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         print()
         train_loss /= len(train_ds)
@@ -315,10 +228,10 @@ def continued_pretrain(model, optimizer, scheduler, device, continued_pretrain_t
         val_loss = 0.0
         with torch.no_grad():
             for X_batch, Y_batch, sample_weight, attention_mask in val_ds:
-                X_batch = X_batch.to(device)
-                Y_batch = Y_batch.to(device)
-                sample_weight = sample_weight.to(device)
-                attention_mask = attention_mask.to(device)
+                X_batch = X_batch.to(device, non_blocking=True)
+                Y_batch = Y_batch.to(device, non_blocking=True)
+                sample_weight = sample_weight.to(device, non_blocking=True)
+                attention_mask = attention_mask.to(device, non_blocking=True)
                 
                 outputs = model(X_batch, attention_mask=attention_mask)
                 loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
@@ -333,16 +246,13 @@ def continued_pretrain(model, optimizer, scheduler, device, continued_pretrain_t
         
         log_progress(f"Epoch {epoch+1}/{num_epochs} Train Loss: {train_loss:.4f} Val Loss: {val_loss:.4f}")
         
-        old_lr = optimizer.param_groups[0]['lr']
-        scheduler.step(val_loss)
-        new_lr = optimizer.param_groups[0]['lr']
-        if new_lr < old_lr:
-            print(f"Epoch {epoch+1}: ReduceLROnPlateau reducing learning rate to {new_lr}.")
-        
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), model_folder / "s_a_i.pt")
-            print(f"Epoch {epoch+1}: val_loss improved from {best_val_loss:.5f} to {val_loss:.5f}, saving model to {model_folder / 's_a_i.pt'}")
+            torch.save(model.state_dict(), model_folder / "pretrained.pt")
+            print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model")
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                               ĐÁNH GIÁ TRÊN TEST SET                               ║")
@@ -392,16 +302,10 @@ if __name__ == "__main__":
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     log_progress(f"Sử dụng device: {device}")
+    log_progress(f"Training với step-based LR scheduling (warmup → plateau → decay)")
     
     model = TransformerModel(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='min', 
-        factor=0.5, 
-        patience=3, 
-        min_lr=1e-6
-    )
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
 
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                                 BẮT ĐẦU TRAINING                                   ║")
@@ -410,7 +314,6 @@ if __name__ == "__main__":
     pretrain_test_loss = pretrain(
         model,
         optimizer,
-        scheduler,
         device,
         pretrain_tokenized_file,
         num_epochs=epochs, 
@@ -421,13 +324,12 @@ if __name__ == "__main__":
     )
 
     log_progress(f"Đang load best model từ pretrain để tiếp tục training...")
-    model.load_state_dict(torch.load(model_dir / "s_a_i.pt", map_location=device))
+    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
     model.to(device)
 
     continued_pretrain_test_loss = continued_pretrain(
         model,
         optimizer,
-        scheduler,
         device,
         continued_pretrain_tokenized_file, 
         pretrain_tokenized_file,
@@ -441,5 +343,3 @@ if __name__ == "__main__":
     log_progress(f"Hoàn thành training!")
     log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
     log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
-    log_progress(f"Đã lưu model cuối cùng vào: {model_dir / 's_a_i.pt'}")
-    
