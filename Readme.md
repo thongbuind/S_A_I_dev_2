@@ -2,72 +2,143 @@
 
 ## Test pre-train
 
-*Mô hình mới pre-train, chưa fine-tune nên chỉ có thể sinh văn bản dựa trên đầu vào, không yêu cầu tính chính xác của thông tin, chỉ xét cấu trúc và ngữ nghĩa.*
+*Mô hình được đào tạo trên tập tiếng việt có vocab_size = 10000, tập data 8.5tr token. Đã trải qua 1 epoch pretrain và 1 epoch continued-pretrain.*
+
+*Từ test 1 đến test 11 là kiểm tra kiến thức lịch sử, yêu cầu phan biệt tên của các vị hoàng đế.*
+
+*Từ test 12 đến test 19 là kiểm tra đặt câu. Input sẽ là 1 từ bất kì, không yêu cầu tính chính xác về ngữ nghĩa của câu, chỉ xem mô hình đã học được cách tạo câu cơ bản hay chưa.*
 
 ### Test 1
-**Req:** thái tổ cao hoàng đế
+**Req:** hoàng đế thứ hai của triều đại nhà lý là
 
-**Res:** thái tổ cao hoàng đế là một trong những vị vua nổi bật trong lịch sử việt nam .
+**Res:** hoàng đế thứ hai của triều đại nhà lý là lý thái tông
 
 ---
 
 ### Test 2
-**Req:** việt nam 
+**Req:** lý công uẩn có miếu hiệu là
 
-**Res:** việt nam đã có nhiều đóng góp quan trọng trong việc phát triển kinh tế và xã hội của đất nước .
+**Res:** lý công uẩn có miếu hiệu là lý thái tổ
 
 ---
 
 ### Test 3
-**Req:** bánh mì
+**Req:** lý phật mã là tên thật của hoàng đế
 
-**Res:** bánh mì thường được chế biến từ thịt heo để tạo nên hương vị đặc trưng cho món ăn .
+**Res:** lý phật mã là tên thật của hoàng đế lý thái tông
 
 ---
 
 ### Test 4
-**Req:** phở 
+**Req:** lý thái tông là
 
-**Res:** phở là một trong những món ăn truyền thống nhất của việt nam , nơi đây là một phần quan trọng trong ẩm thực việt nam .
+**Res:** lý thái tông là miếu hiệu của vua lý phật mã
 
 ---
 
 ### Test 5
-**Req:** Đinh Tiên Hoàng 
+**Req:** thánh tông hoàng đế của triều đại nhà lý là
 
-**Res:** đinh tiên hoàng đế là một trong những vị vua nổi bật trong lịch sử việt nam .
+**Res:** thánh tông hoàng đế của triều đại nhà lý là lý nhật tôn
 
 ---
 
 ### Test 6
-**Req:** Lê Lợi 
+**Req:** trần thái tổ có huý là
 
-**Res:** lê lợi là một trong những nhân vật lịch sử nổi bật trong lịch sử việt nam .
+**Res:** trần thái tổ có huý là trần thừa
 
 ---
 
 ### Test 7
-**Req:** sau khi lên ngôi
+**Req:** trần cảnh là hoàng đế
 
-**Res:** sau khi lên ngôi , ông đã có những đóng góp quan trọng trong việc xây dựng một nền tảng vững chắc cho sự phát triển của đất nước .
+**Res:** trần cảnh là hoàng đế trần thái tông
 
 ---
 
 ### Test 8
-**Req:** sau khi ăn xong, chúng tôi 
+**Req:** trần thánh tông là
 
-**Res:** sau khi ăn xong , chúng tôi lại thấy mệt mỏi , tôi cảm thấy mệt mỏi hơn .
+**Res:** trần thánh tông là miếu hiệu của trần hoảng
 
 ---
 
 ### Test 9
-**Req:** mặc dù
+**Req:** thái tổ cao hoàng đế là thuỵ hiệu của
 
-**Res:** mặc dù có nhiều người đã có những đóng góp quan trọng trong việc phát triển kinh tế và xã hội .
+**Res:** thái tổ cao hoàng đế là thuỵ hiệu của lê lợi
 
 ---
 
 ### Test 10
-**Req:** bởi vì trời mưa,
+**Req:** lê bang cơ có miếu hiệu là
 
-**Res:** bởi vì trời mưa , một số loại trái cây có thể được sử dụng trong các món ăn .
+**Res:** lê bang cơ có miếu hiệu là lê nhân tông
+
+---
+
+### Test 11
+**Req:** thánh tông thuần hoàng đế là
+
+**Res:** thánh tông thuần hoàng đế là miếu hiệu của vua lê thánh tông
+
+**Nhận xét**: Không đúng lắm: phải là "thuỵ" chứ không phải "miếu".
+
+---
+
+### Test 12
+**Req:** nhà trần
+
+**Res:** nhà trần là một triều đại nổi bật trong lịch sử việt nam , nổi bật với những cải cách quan trọng trong thời kỳ này .
+
+---
+
+### Test 13
+**Req:** phở
+
+**Res:** phở là một món ăn truyền thống của việt nam , thường được chế biến từ các nguyên liệu tươi ngon và dễ chịu .
+
+---
+
+### Test 14
+**Req:** giải đua xe công thức 1
+
+**Res:** giải đua xe công thức 1 thường được xem là một trong những giải đua xe danh giá nhất thế giới .
+
+---
+
+### Test 15
+**Req:** max verstappen
+
+**Res:** max verstappen đã có nhiều đóng góp cho sự phát triển của thể thao đua xe , từ sự nghiệp đua xe đến kỹ năng .
+
+---
+
+### Test 16
+**Req:** leclerc
+
+**Res:** leclerc là một trong những tay đua nổi tiếng nhất trong lịch sử công thức 1 .
+
+---
+
+### Test 17
+**Req:** vào buổi tối
+
+**Res:** vào buổi tối , tôi đã học được nhiều bài học quý giá từ những câu chuyện lịch sử và văn hóa của dân tộc .
+
+---
+
+### Test 18
+**Req:** sáng hôm ấy
+
+**Res:** sáng hôm ấy , tôi cảm thấy mình rất thích và cảm xúc .
+
+---
+
+### Test 19
+**Req:** sau khi ăn xong, chúng tôi
+
+**Res:** sau khi ăn xong , chúng tôi sẽ đi dạo trong một ngày dài , tôi sẽ đi dạo với những món ăn đặc sản khác .
+
+
