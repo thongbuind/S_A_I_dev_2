@@ -6,10 +6,12 @@
     "num_layers": 6,
     "ff_dim": 1024,
     "dropout": 0.05,
-    "epochs": 2,
+    "epochs": 3,
     "batch_size": 16,
     "train_ratio": 0.8,
     "val_ratio": 0.1,
     "pretrain_learning_rate": 0.0005,
-    "continued_pretrain_learning_rate": 0.0001
+    "continued_pretrain_learning_rate": 0.0001,
+    "pretrain_weight_decay": 0.2,
+    "continued_pretrain_weight_decay": 0.05
 }
