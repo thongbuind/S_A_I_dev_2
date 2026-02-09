@@ -20,7 +20,8 @@ data/processed/SFT2_data_ids.npz
 data/raw/continued_pretrain_data.jsonl
 data/raw/pretrain_data.jsonl
 data/raw/shorted_data.jsonl
-data/raw/finetune_data.jsonl
+data/raw/SFT_1.jsonl
+data/raw/SFT_2.jsonl
 data/raw/hoang_de.jsonl
 
 topic.md
