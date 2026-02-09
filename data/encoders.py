@@ -23,87 +23,64 @@ def load_text_jsonl(path, key="text"):
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line:
-                continue
+            if not line: continue
             try:
                 obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+            except json.JSONDecodeError: continue
             if isinstance(obj, dict) and key in obj:
                 text = obj[key].strip()
-                if text:
-                    data.append(text)
+                if text: data.append(text)
     return data
+
+def load_sft_jsonl(path):
+    dataset = []
+    with open(raw_dir / path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError: continue
+            if not isinstance(obj, dict): continue
+
+            instruction = obj.get("instruction", "").strip()
+            input_text = obj.get("input", "").strip()
+            output_text = obj.get("output", "").strip()
+
+            if not output_text: continue
+
+            dataset.append({
+                "instruction": instruction,
+                "input": input_text,
+                "output": output_text
+            })
+    return dataset
 
 def build_dataset(texts, tokenizer, vocab, max_seq_len):
     X, Y, lengths = [], [], []
-
     for idx, line in enumerate(texts):
         if idx % 10000 == 0:
             print(f"📄 Đang xử lý dòng {idx}/{len(texts)}...")
-
         tokens = tokenizer.encode(line).ids
         if len(tokens) < 2 or len(tokens) + 2 > max_seq_len:
             continue
-
         X.append([vocab["[BOS]"]] + tokens)
         Y.append(tokens + [vocab["[EOS]"]])
         lengths.append(len(tokens) + 1)
-
     return X, Y, lengths
 
 pretrain_texts = load_text_jsonl(raw_dir / "pretrain_data.jsonl")
 X, Y, lengths = build_dataset(pretrain_texts, tokenizer, vocab, max_seq_len)
-np.savez_compressed(processed_dir / "pretrain_data_ids.npz",
-                    X=np.array(X, dtype=object),
-                    Y=np.array(Y, dtype=object),
-                    lengths=np.array(lengths))
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/pretrain_data_ids.npz")
-print(f"📊 THỐNG KÊ DỮ LIỆU:")
-print(f"📊 Tổng số mẫu: {len(X)}")
-print(f"📈 Độ dài sequence trung bình: {np.mean(lengths):.2f}")
-print(f"📉 Độ dài sequence min/max: {min(lengths)}/{max(lengths)}\n")
+np.savez_compressed(processed_dir / "pretrain_data_ids.npz", X=np.array(X, dtype=object), Y=np.array(Y, dtype=object), lengths=np.array(lengths))
 
 continued_texts = load_text_jsonl(raw_dir / "continued_pretrain_data.jsonl")
 X, Y, lengths = build_dataset(continued_texts, tokenizer, vocab, max_seq_len)
-np.savez_compressed(processed_dir / "continued_pretrain_data_ids.npz",
-                    X=np.array(X, dtype=object),
-                    Y=np.array(Y, dtype=object),
-                    lengths=np.array(lengths))
-print(f"✅ Đã lưu dữ liệu vào: {processed_dir}/continued_pretrain_data_ids.npz\n")
-
-finetune_dataset = []
-with open(raw_dir / "finetune_data.jsonl", "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        if not isinstance(obj, dict):
-            continue
-
-        instruction = obj.get("instruction", "").strip()
-        input_text = obj.get("input", "").strip()
-        output_text = obj.get("output", "").strip()
-
-        if not output_text:
-            continue
-
-        finetune_dataset.append({
-            "instruction": instruction,
-            "input": input_text,
-            "output": output_text
-        })
+np.savez_compressed(processed_dir / "continued_pretrain_data_ids.npz", X=np.array(X, dtype=object), Y=np.array(Y, dtype=object), lengths=np.array(lengths))
 
 USER = vocab["<|user|>"]
 SAI = vocab["<|s.a.i|>"]
 BOS = vocab["[BOS]"]
 EOS = vocab["[EOS]"]
-total_lines = len(finetune_dataset)
 
 def process_sft_data(dataset, use_fixed_instruction=False):
     X, Y, loss_mask, lengths = [], [], [], []
@@ -146,8 +123,8 @@ def process_sft_data(dataset, use_fixed_instruction=False):
     
     return X, Y, loss_mask, lengths
 
-print("📦 Đang xử lý SFT1...")
-X_sft1, Y_sft1, loss_mask_sft1, lengths_sft1 = process_sft_data(finetune_dataset, use_fixed_instruction=True)
+sft1_dataset = load_sft_jsonl("SFT_1.jsonl")
+X_sft1, Y_sft1, loss_mask_sft1, lengths_sft1 = process_sft_data(sft1_dataset, use_fixed_instruction=True)
 
 np.savez_compressed(
     processed_dir / "SFT1_data_ids.npz",
@@ -158,8 +135,8 @@ np.savez_compressed(
 )
 print(f"✅ Đã lưu SFT1: {len(X_sft1)} samples")
 
-print("\n📦 Đang xử lý SFT2...")
-X_sft2, Y_sft2, loss_mask_sft2, lengths_sft2 = process_sft_data(finetune_dataset, use_fixed_instruction=False)
+sft2_dataset = load_sft_jsonl("SFT_2.jsonl")
+X_sft2, Y_sft2, loss_mask_sft2, lengths_sft2 = process_sft_data(sft2_dataset, use_fixed_instruction=False)
 
 np.savez_compressed(
     processed_dir / "SFT2_data_ids.npz",
