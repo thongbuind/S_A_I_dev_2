@@ -39,7 +39,7 @@ def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, mode
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    total_steps = len(train_ds) * num_epochs
+    total_steps = len(train_ds)
     warmup_steps = len(train_ds) // 5
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

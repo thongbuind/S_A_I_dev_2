@@ -196,9 +196,14 @@ inputs = [
     "max verstappen",
     "leclerc",
     "manchester",
+    "sau khi",
+    "trước khi",
+    "mặc dù",
+    "dù cho",
+    "không những",
     "vào buổi tối",
     "sáng hôm ấy",
-    "sau khi ăn xong, chúng tôi",
+    "sau khi ăn xong, chúng tôi"
 ]
 
 print("\n=== Test pre-train ===")

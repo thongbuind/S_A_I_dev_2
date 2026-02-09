@@ -20,16 +20,6 @@ model_dir.mkdir(parents=True, exist_ok=True)
 data_processed_dir = project_root / "data" / "processed"
 finetune_tokenized_file = data_processed_dir / "finetune_data_ids.npz"
 
-"""
-Lưu ý khi finetune:
-    - Data cố gắng tập trung vào 1 số chủ đề, không phân tán: giao tiếp cơ bản và một vài vị hoàng đế trong lịch sử
-    - Format cố định
-    - Cách dùng instruct
-    - Learning rate 0.0001
-    - Weight decay = 0.0
-    - Chỉ tính loss trên phần output, không tính loss trên instruct (nếu có thì sẽ thành model học coppy promt)
-    - Chiến thuật: freeze một phần model (có nhiều hướng, tìm hiểu dần)
-"""
 
 def finetune(model, optimizer, device, finetune_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
     print("╔════════════════════════════════════════════════════════════════════════════════════╗")
@@ -219,7 +209,8 @@ if __name__ == "__main__":
     batch_size = config["batch_size"]
     train_ratio = config["train_ratio"]
     val_ratio = config["val_ratio"]
-    learning_rate = config["learning_rate"]
+    finetune_learning_rate = config["finetune_learning_rate"]
+    finetune_weight_decay = config["finetune_weight_decay"]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_progress(f"Sử dụng device: {device}")
@@ -241,8 +232,8 @@ if __name__ == "__main__":
 
     optimizer = optim.AdamW(
         model.parameters(),
-        lr=learning_rate * 0.1,
-        weight_decay=0.0
+        lr=finetune_learning_rate * 0.1,
+        weight_decay=finetune_weight_decay
     )
 
     print("╔════════════════════════════════════════════════════════════════════════════════════╗")
