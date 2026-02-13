@@ -115,7 +115,7 @@ def create_dataset(X, Y, lengths, batch_size, shuffle, loss_masks=None):
         num_workers=1,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=False,
-        drop_last=True
+        drop_last=False
     )
 
     log_progress(f"Dataset được tạo với batch_size={batch_size}")
