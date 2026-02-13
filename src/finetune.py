@@ -21,6 +21,15 @@ data_processed_dir = project_root / "data" / "processed"
 SFT1_data_ids_file = data_processed_dir / "SFT1_data_ids.npz"
 SFT2_data_ids_file = data_processed_dir / "SFT2_data_ids.npz"
 
+def freeze_layers(model, layers_to_freeze):
+    for idx in layers_to_freeze:
+        for param in model.decoder_blocks[idx].parameters():
+            param.requires_grad = False
+    
+def unfreeze_all_layers(model):
+    for param in model.parameters():
+        param.requires_grad = True
+    
 def finetune(model, optimizer, device, finetune_tokenized_file, num_epochs, model_save_path, train_ratio, val_ratio, batch_size, phase_name):
     print(f"╔════════════════════════════════════════════════════════════════════════════════════╗")
     print(f"║                              BẮT ĐẦU LOAD {phase_name.upper():<25} DATA                ║")
@@ -159,7 +168,6 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_progress(f"Sử dụng device: {device}")
-    log_progress("Finetune 2 giai đoạn với masked loss")
 
     model = TransformerModel(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout).to(device)
 
@@ -167,7 +175,13 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
     model.to(device)
 
-    optimizer_sft1 = optim.AdamW(model.parameters(), lr=SFT_1_learning_rate, weight_decay=SFT_1_learning_weight_decay)
+    freeze_layers(model, [0, 1, 2])
+    
+    optimizer_sft1 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()), 
+        lr=SFT_1_learning_rate, 
+        weight_decay=SFT_1_learning_weight_decay
+    )
     
     test_loss_sft1 = finetune(
         model, optimizer_sft1, device, SFT1_data_ids_file,
@@ -177,10 +191,16 @@ if __name__ == "__main__":
         batch_size=batch_size, phase_name="sft1"
     )
 
-    log_progress("Chuyển sang Giai đoạn 2: Instruction Tuning...")
     model.load_state_dict(torch.load(model_dir / "sft1.pt", map_location=device))
     
-    optimizer_sft2 = optim.AdamW(model.parameters(), lr=SFT_2_learning_rate, weight_decay=SFT_2_learning_weight_decay)
+    unfreeze_all_layers(model)
+    freeze_layers(model, [0, 1, 2, 3, 4])
+    
+    optimizer_sft2 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()), 
+        lr=SFT_2_learning_rate, 
+        weight_decay=SFT_2_learning_weight_decay
+    )
     
     test_loss_sft2 = finetune(
         model, optimizer_sft2, device, SFT2_data_ids_file,
