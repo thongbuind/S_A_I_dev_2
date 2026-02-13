@@ -12,8 +12,10 @@
     "val_ratio": 0.1,
     "pretrain_learning_rate": 0.0005,
     "continued_pretrain_learning_rate": 0.0001,
-    "finetune_learning_rate": 0.00005,
+    "SFT_1_learning_rate": 0.00001,
+    "SFT_2_learning_rate": 0.000005,
     "pretrain_weight_decay": 0.2,
     "continued_pretrain_weight_decay": 0.05,
-    "finetune_weight_decay": 0.01
+    "SFT_1_learning_weight_decay": 0.01,
+    "SFT_2_learning_weight_decay": 0.01
 }
