@@ -77,13 +77,12 @@ def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, mode
             
             train_loss += loss.item()
             batch_count += 1
-            global_step += 1
             
             current_lr = optimizer.param_groups[0]['lr']
             
             if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_batches:
                 avg_loss = train_loss / batch_count
-                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {global_step}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
+                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {batch_idx+1}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
             
             del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
             if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
@@ -175,7 +174,6 @@ def continued_pretrain(model, optimizer, device, continued_pretrain_tokenized_fi
 
     criterion = nn.CrossEntropyLoss(reduction='none')
     best_val_loss = float('inf')
-    global_step = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -203,13 +201,12 @@ def continued_pretrain(model, optimizer, device, continued_pretrain_tokenized_fi
             
             train_loss += loss.item()
             batch_count += 1
-            global_step += 1
             
             current_lr = optimizer.param_groups[0]['lr']
             
             if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_batches:
                 avg_loss = train_loss / batch_count
-                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {global_step}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
+                print(f"\rEpoch {epoch+1}/{num_epochs} - Step {batch_idx+1}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
             
             del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
             if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
