@@ -77,7 +77,10 @@ def create_dataset(X, Y, lengths, batch_size, shuffle, loss_masks=None):
         idx_batch = [item[3] for item in batch]
 
         max_len = max(len(x) for x in X_batch)
-        bucket = int(np.ceil(max_len / bucket_size) * bucket_size)
+        if max_len > 1000:
+            bucket = 1024
+        else:
+            bucket = int(np.ceil(max_len / bucket_size) * bucket_size)
 
         bsz = len(X_batch)
         X_padded = torch.zeros((bsz, bucket), dtype=torch.long)
