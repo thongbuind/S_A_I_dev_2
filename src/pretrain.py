@@ -46,7 +46,6 @@ def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, mode
     
     criterion = nn.CrossEntropyLoss(reduction='none')
     best_val_loss = float('inf')
-    global_step = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -167,7 +166,7 @@ def continued_pretrain(model, optimizer, device, continued_pretrain_tokenized_fi
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    total_steps = len(train_ds) * num_epochs
+    total_steps = len(train_ds)
     warmup_steps = len(train_ds) // 2
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -285,7 +284,8 @@ if __name__ == "__main__":
     num_layers = config['num_layers']
     ff_dim = config['ff_dim']
     dropout = config['dropout']
-    epochs = config['epochs']
+    pretrain_epochs = config['pretrain_epochs']
+    continued_pretrain_epochs = config['continued_pretrain_epochs']
     batch_size = config['batch_size']
     train_ratio = config['train_ratio']
     val_ratio = config['val_ratio']
@@ -308,7 +308,7 @@ if __name__ == "__main__":
         optimizer,
         device,
         pretrain_tokenized_file,
-        num_epochs=epochs, 
+        num_epochs=pretrain_epochs, 
         model_folder=model_dir,
         train_ratio=train_ratio,
         val_ratio=val_ratio,
@@ -328,7 +328,7 @@ if __name__ == "__main__":
         device,
         continued_pretrain_tokenized_file, 
         pretrain_tokenized_file,
-        num_epochs=epochs, 
+        num_epochs=continued_pretrain_epochs, 
         model_folder=model_dir,
         train_ratio=train_ratio,
         val_ratio=val_ratio,

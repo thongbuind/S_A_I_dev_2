@@ -43,14 +43,12 @@ def load_sft_jsonl(path):
             except json.JSONDecodeError: continue
             if not isinstance(obj, dict): continue
 
-            instruction = obj.get("instruction", "").strip()
             input_text = obj.get("input", "").strip()
             output_text = obj.get("output", "").strip()
 
             if not output_text: continue
 
             dataset.append({
-                "instruction": instruction,
                 "input": input_text,
                 "output": output_text
             })
@@ -90,15 +88,10 @@ def process_sft_data(dataset, use_fixed_instruction=False):
         if idx % 100 == 0:
             print(f"📄 Đang xử lý dòng {idx}/{len(dataset)}...")
 
-        if use_fixed_instruction:
-            instruction = "Trả lời input sau bằng tiếng Việt"
-        else:
-            instruction = sample["instruction"]
-        
         if sample["input"]:
-            prompt = "Instruction: " + instruction + " Input: " + sample["input"]
+            prompt = " Input: " + sample["input"]
         else:
-            prompt = "Instruction: " + instruction
+            prompt = " Input: "
 
         prompt_ids = tokenizer.encode(prompt).ids
         output_ids = tokenizer.encode(sample["output"]).ids
