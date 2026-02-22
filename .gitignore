@@ -24,5 +24,7 @@ data/raw/SFT_1.jsonl
 data/raw/SFT_2.jsonl
 data/raw/hoang_de.jsonl
 
-topic.md
 data/history/
+data/tao_cau/
+
+model/

@@ -157,14 +157,15 @@ if __name__ == "__main__":
     num_layers = config["num_layers"]
     ff_dim = config["ff_dim"]
     dropout = config["dropout"]
-    epochs = config["epochs"]
+    sft1_epochs = config["sft1_epochs"]
+    sft2_epochs = config["sft2_epochs"]
     batch_size = config["batch_size"]
     train_ratio = config["train_ratio"]
     val_ratio = config["val_ratio"]
-    SFT_1_learning_rate = config["SFT_1_learning_rate"]
-    SFT_1_learning_weight_decay = config["SFT_1_learning_weight_decay"]
-    SFT_2_learning_rate = config["SFT_2_learning_rate"]
-    SFT_2_learning_weight_decay = config["SFT_2_learning_weight_decay"]
+    sft1_learning_rate = config["sft1_learning_rate"]
+    sft1_learning_weight_decay = config["sft1_learning_weight_decay"]
+    sft2_learning_rate = config["sft2_learning_rate"]
+    sft2_learning_weight_decay = config["sft2_learning_weight_decay"]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_progress(f"Sử dụng device: {device}")
@@ -179,13 +180,13 @@ if __name__ == "__main__":
     
     optimizer_sft1 = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), 
-        lr=SFT_1_learning_rate, 
-        weight_decay=SFT_1_learning_weight_decay
+        lr=sft1_learning_rate, 
+        weight_decay=sft1_learning_weight_decay
     )
     
     test_loss_sft1 = finetune(
         model, optimizer_sft1, device, SFT1_data_ids_file,
-        num_epochs=epochs, 
+        num_epochs=sft1_epochs, 
         model_save_path=model_dir / "sft1.pt",
         train_ratio=train_ratio, val_ratio=val_ratio,
         batch_size=batch_size, phase_name="sft1"
@@ -194,17 +195,17 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(model_dir / "sft1.pt", map_location=device))
     
     unfreeze_all_layers(model)
-    freeze_layers(model, [0, 1, 2, 3, 4])
+    freeze_layers(model, [0, 1, 2])
     
     optimizer_sft2 = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), 
-        lr=SFT_2_learning_rate, 
-        weight_decay=SFT_2_learning_weight_decay
+        lr=sft2_learning_rate, 
+        weight_decay=sft2_learning_weight_decay
     )
     
     test_loss_sft2 = finetune(
         model, optimizer_sft2, device, SFT2_data_ids_file,
-        num_epochs=epochs,
+        num_epochs=sft2_epochs,
         model_save_path=model_dir / "sft2.pt",
         train_ratio=train_ratio, val_ratio=val_ratio,
         batch_size=batch_size, phase_name="sft2"
