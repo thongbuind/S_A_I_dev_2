@@ -57,7 +57,7 @@ def load_sft_jsonl(path):
 def build_dataset(texts, tokenizer, vocab, max_seq_len):
     X, Y, lengths = [], [], []
     for idx, line in enumerate(texts):
-        if idx % 10000 == 0:
+        if idx % 100000 == 0:
             print(f"📄 Đang xử lý dòng {idx}/{len(texts)}...")
         tokens = tokenizer.encode(line).ids
         if len(tokens) < 2 or len(tokens) + 2 > max_seq_len:
@@ -81,11 +81,11 @@ SAI = vocab["<|s.a.i|>"]
 BOS = vocab["[BOS]"]
 EOS = vocab["[EOS]"]
 
-def process_sft_data(dataset, use_fixed_instruction=False):
+def process_sft_data(dataset):
     X, Y, loss_mask, lengths = [], [], [], []
     
     for idx, sample in enumerate(dataset):
-        if idx % 100 == 0:
+        if idx % 10000 == 0:
             print(f"📄 Đang xử lý dòng {idx}/{len(dataset)}...")
 
         if sample["input"]:
@@ -103,9 +103,18 @@ def process_sft_data(dataset, use_fixed_instruction=False):
 
         target_ids = input_ids[1:]
 
+        if len(output_ids) == 1:
+            output_weight = 30
+        elif len(output_ids) <= 3:
+            output_weight = 10
+        # elif len(output_ids) < 10:
+        #     output_weight = 3
+        else:
+            output_weight = 1
+
         mask = (
             [0] * (1 + len(prompt_ids) + 1) +
-            [1] * (len(output_ids) + 1)
+            [output_weight] * (len(output_ids) + 1)
         )
         
         assert len(mask) == len(target_ids)
@@ -118,7 +127,7 @@ def process_sft_data(dataset, use_fixed_instruction=False):
     return X, Y, loss_mask, lengths
 
 sft1_dataset = load_sft_jsonl("SFT_1.jsonl")
-X_sft1, Y_sft1, loss_mask_sft1, lengths_sft1 = process_sft_data(sft1_dataset, use_fixed_instruction=True)
+X_sft1, Y_sft1, loss_mask_sft1, lengths_sft1 = process_sft_data(sft1_dataset)
 
 np.savez_compressed(
     processed_dir / "SFT1_data_ids.npz",
@@ -130,7 +139,7 @@ np.savez_compressed(
 print(f"✅ Đã lưu SFT1: {len(X_sft1)} samples")
 
 sft2_dataset = load_sft_jsonl("SFT_2.jsonl")
-X_sft2, Y_sft2, loss_mask_sft2, lengths_sft2 = process_sft_data(sft2_dataset, use_fixed_instruction=False)
+X_sft2, Y_sft2, loss_mask_sft2, lengths_sft2 = process_sft_data(sft2_dataset)
 
 np.savez_compressed(
     processed_dir / "SFT2_data_ids.npz",

@@ -8,7 +8,8 @@ from tokenizers import Tokenizer
 from model import TransformerModel
 
 current_file = Path(__file__).resolve()
-project_root = current_file.parent.parent
+src_dir = current_file.parent.parent
+project_root = src_dir.parent
 
 config_file = project_root / "config" / "config.json"
 tokenizer_file = project_root / "data" / "processed" / "tokenizer.json"

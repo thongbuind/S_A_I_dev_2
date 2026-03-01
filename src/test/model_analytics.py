@@ -2,7 +2,6 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 import torch
-import numpy as np
 import json
 import sys
 from pathlib import Path
@@ -14,7 +13,7 @@ from model import TransformerModel
 # PATH & CONFIG
 # =====================
 current_file = Path(__file__).resolve()
-src_dir = current_file.parent
+src_dir = current_file.parent.parent
 project_root = src_dir.parent
 sys.path.append(str(project_root))
 

@@ -5,7 +5,8 @@ import torch.optim as optim
 import json
 import gc
 import sys
-from utils import split_train_val_test, get_step_lr_lambda, create_dataset, log_progress, load_data
+from utils.utils import get_step_lr_lambda, log_progress
+from utils.Dataset import Dataset, split_train_val_test, load_data
 from model import TransformerModel
 
 current_file = Path(__file__).resolve()
@@ -22,7 +23,7 @@ pretrain_tokenized_file = data_processed_dir / "pretrain_data_ids.npz"
 continued_pretrain_tokenized_file = data_processed_dir / "continued_pretrain_data_ids.npz"
 
 def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, model_folder, train_ratio, val_ratio, batch_size):
-    print("╔════════════════════════════════════════════════════════════════════════════════════╗")
+    print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                            BẮT ĐẦU LOAD PRETRAIN DATA                              ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
@@ -30,9 +31,9 @@ def pretrain(model, optimizer, device, pretrain_tokenized_file, num_epochs, mode
     X_train, Y_train, _, lengths_train, X_val, Y_val, _, lengths_val, X_test, Y_test, _, lengths_test = split_train_val_test(X, Y, None, lengths, train_ratio, val_ratio)
     log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
     
-    train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
-    val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
-    test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
+    train_ds = Dataset.create_dataloader(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
+    val_ds = Dataset.create_dataloader(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
+    test_ds = Dataset.create_dataloader(X_test, Y_test, lengths_test, batch_size, shuffle=False)
 
     del X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test
     gc.collect()
@@ -157,9 +158,9 @@ def continued_pretrain(model, optimizer, device, continued_pretrain_tokenized_fi
     X_train, Y_train, _, lengths_train, X_val, Y_val, _, lengths_val, X_test, Y_test, _, lengths_test = split_train_val_test(X, Y, None, lengths, train_ratio, val_ratio)
     log_progress(f"Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
     
-    train_ds = create_dataset(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
-    val_ds = create_dataset(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
-    test_ds = create_dataset(X_test, Y_test, lengths_test, batch_size, shuffle=False)
+    train_ds = Dataset.create_dataloader(X_train, Y_train, lengths_train, batch_size, shuffle=True)    
+    val_ds = Dataset.create_dataloader(X_val, Y_val, lengths_val, batch_size, shuffle=False)    
+    test_ds = Dataset.create_dataloader(X_test, Y_test, lengths_test, batch_size, shuffle=False)
 
     del X_train, Y_train, lengths_train, X_val, Y_val, lengths_val, X_test, Y_test, lengths_test
     gc.collect()

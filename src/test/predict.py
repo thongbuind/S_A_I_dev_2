@@ -1,17 +1,20 @@
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
+import sys
+from pathlib import Path
+
+current_file = Path(__file__).resolve()
+src_dir = current_file.parent.parent
+project_root = src_dir.parent
+sys.path.append(str(project_root))
+
 import torch
 import numpy as np
 import json
-import sys
-from pathlib import Path
 from tokenizers import Tokenizer
-from model import TransformerModel
+from src.model import TransformerModel
 
-current_file = Path(__file__).resolve()
-src_dir = current_file.parent
-project_root = src_dir.parent
-sys.path.append(str(project_root))
 config_file = project_root / "config" / "config.json"
 vocab_file = project_root / "data" / "vocab.txt"
 model_file = project_root / "model" / "pretrained.pt"
@@ -156,37 +159,10 @@ def generate_response(sentence, max_new_tokens=50, loss_margin=0.0, lookahead=10
 # Kiểm Tra Mô Hình
 # ================
 
-# ###########
-# # CÁCH 1
-# ###########
 inputs = [
-    "hoàng đế thứ ba của triều đại nhà lý là",
-    "đại thắng minh hoàng đế có tên huý là",
-    "tên thật của trần thái tổ là",
-    "tên thật của trần nhân tông là",
-    "tên thật của hoàng đế trần thái tổ là",
-    "huý danh của trần nhân tông là",
-    "huý danh của lê thái tông là",
-    "huý danh của lê thánh tông là",
-    "sau khi mất, lý càn đức được tôn miếu hiệu là",
-    "trần khâm được tôn miếu hiệu là",
-    "sau khi mất, trần khâm được tôn miếu hiệu là",
-    "lý phật mã là tên thật của hoàng đế",
-    "thánh tông hoàng đế của triều đại nhà lý là",
-    "sau khi băng hà, lý càn đức được truy tôn miếu hiệu",
-    "trần thái tổ có huý là",
-    "trần cảnh là hoàng đế",
-    "trần thái tông là miếu hiệu của",
-    "trần thánh tông là",
-    "miếu hiệu của hoàng đế trần hoảng là",
-    "thái tổ cao hoàng đế là thuỵ hiệu của",
-    "thái tông văn hoàng đế tên thật là",
-    "lê bang cơ có miếu hiệu là",
-    "lê tư thành là",
-    "thánh tông thuần hoàng đế là",
-    "sau khi lên ngôi",
+    "đám mây",
+    "cơn mưa",
     "nhà trần",
-    "nhà lý",
     "triều đại hậu lê",
     "việt nam sở hữu",
     "phở",
