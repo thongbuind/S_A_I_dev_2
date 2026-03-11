@@ -23,6 +23,6 @@ data/raw/
 data/history/
 data/tao_cau/
 
-model/sft2.pt
+model/
 
 test/
