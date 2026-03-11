@@ -19,7 +19,7 @@ sys.path.append(str(project_root))
 
 config_file = project_root / "config" / "config.json"
 model_file = project_root / "model" / "pretrained.pt"
-tokenizer_file = project_root / "data" / "processed" / "tokenizer.json"
+tokenizer_file = project_root / "data" / "tokenizer.json"
 
 with open(config_file, "r") as f:
     config = json.load(f)

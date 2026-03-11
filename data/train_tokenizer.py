@@ -8,8 +8,6 @@ current_file = Path(__file__).resolve()
 data_dir = current_file.parent
 config_file = data_dir.parent / "config" / "config.json"
 raw_dir = data_dir / "raw"
-processed_dir = data_dir / "processed"
-processed_dir.mkdir(parents=True, exist_ok=True)
 
 with open(config_file, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -59,7 +57,7 @@ trainer = trainers.BpeTrainer(
 )
 
 tokenizer.train_from_iterator(dataset, trainer=trainer)
-tokenizer.save(str(processed_dir / "tokenizer.json"))
+tokenizer.save(str(data_dir / "tokenizer.json"))
 
 vocab = tokenizer.get_vocab()
 sorted_vocab = sorted(vocab.items(), key=lambda x: x[1])

@@ -12,7 +12,7 @@ src_dir = current_file.parent.parent
 project_root = src_dir.parent
 
 config_file = project_root / "config" / "config.json"
-tokenizer_file = project_root / "data" / "processed" / "tokenizer.json"
+tokenizer_file = project_root / "data" / "tokenizer.json"
 model_file = project_root / "model" / "s_a_i.pt"
 
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")

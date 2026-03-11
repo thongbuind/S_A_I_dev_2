@@ -18,7 +18,7 @@ from src.model import TransformerModel
 config_file = project_root / "config" / "config.json"
 vocab_file = project_root / "data" / "vocab.txt"
 model_file = project_root / "model" / "pretrained.pt"
-processed_dir = project_root / "data" / "processed"
+data_dir = project_root / "data"
 
 with open(config_file, 'r') as f:
     config = json.load(f)
@@ -36,7 +36,7 @@ model.load_state_dict(torch.load(model_file, map_location=device))
 model.to(device)
 model.eval()
 
-tokenizer_file = processed_dir / "tokenizer.json"
+tokenizer_file = data_dir / "tokenizer.json"
 tokenizer = Tokenizer.from_file(str(tokenizer_file))
 vocab = tokenizer.get_vocab()
 

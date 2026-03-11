@@ -14,7 +14,7 @@ with open(config_file, 'r') as f:
     config = json.load(f)
 max_seq_len = config['max_seq_len']
 
-tokenizer_file = processed_dir / "tokenizer.json"
+tokenizer_file = data_dir / "tokenizer.json"
 tokenizer = Tokenizer.from_file(str(tokenizer_file))
 vocab = tokenizer.get_vocab()
 
