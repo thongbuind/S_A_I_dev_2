@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as functional
+from src.utils.generate import generate
 
 class RotaryPositionalEmbedding(nn.Module):
     def __init__(self, d_model, max_seq_len):
@@ -47,7 +48,6 @@ class RotaryPositionalEmbedding(nn.Module):
         rotated_x = rotated_x.reshape(x.shape)
 
         return rotated_x
-
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model, num_heads, max_seq_len, dropout_rate):
@@ -144,17 +144,16 @@ class MultiHeadAttention(nn.Module):
 
         return self.wo(out), present_kv
 
-    def forward_with_cache(self, x, past_kv):
+    def forward_with_cache(self, x, past_kv, cache_len):
         batch_size, seq_len, _ = x.shape
 
         q = self.wq(x).view(batch_size, seq_len, self.num_heads, self.d_k)
         k = self.wk(x).view(batch_size, seq_len, self.num_heads, self.d_k)
         v = self.wv(x).view(batch_size, seq_len, self.num_heads, self.d_k)
 
-        T_past = past_kv[0].shape[2]
-        cos_full, sin_full = self.rope(T_past + seq_len)
-        cos_new = cos_full[:, T_past:T_past + seq_len, :].view(1, seq_len, 1, self.d_k)
-        sin_new = sin_full[:, T_past:T_past + seq_len, :].view(1, seq_len, 1, self.d_k)
+        cos_full, sin_full = self.rope(cache_len + seq_len)
+        cos_new = cos_full[:, cache_len:cache_len + seq_len, :].view(1, seq_len, 1, self.d_k)
+        sin_new = sin_full[:, cache_len:cache_len + seq_len, :].view(1, seq_len, 1, self.d_k)
 
         q = self.rope.apply_rope(q, cos_new, sin_new)
         k = self.rope.apply_rope(k, cos_new, sin_new)
@@ -163,29 +162,20 @@ class MultiHeadAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        k = torch.cat([past_kv[0], k], dim=2)
-        v = torch.cat([past_kv[1], v], dim=2)
+        past_kv[0][:batch_size, :, cache_len:cache_len + seq_len, :] = k
+        past_kv[1][:batch_size, :, cache_len:cache_len + seq_len, :] = v
 
-        present_kv = (k, v)
+        k_full = past_kv[0][:batch_size, :, :cache_len + seq_len, :]
+        v_full = past_kv[1][:batch_size, :, :cache_len + seq_len, :]
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / (self.d_k ** 0.5)
+        scores = torch.matmul(q, k_full.transpose(-2, -1)) / (self.d_k ** 0.5)
         attn_w = functional.softmax(scores, dim=-1)
 
-        out = torch.matmul(attn_w, v).transpose(1, 2).contiguous()
+        out = torch.matmul(attn_w, v_full).transpose(1, 2).contiguous()
         out = out.view(batch_size, seq_len, self.d_model)
 
-        return self.wo(out), present_kv
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "d_model": self.d_model,
-            "num_heads": self.num_heads,
-            "max_seq_len": self.max_seq_len,
-            "dropout_rate": self.dropout_rate,
-        })
-        return config
-
+        return self.wo(out)
+    
 class DecoderBlock(nn.Module):
     def __init__(self, d_model, num_heads, ff_dim, max_seq_len, dropout):
         super().__init__()
@@ -225,13 +215,13 @@ class DecoderBlock(nn.Module):
         ffn_out = self.dropout2(ffn_out)
         return self.layernorm2(out1 + ffn_out), present_kv
 
-    def forward_with_cache(self, x, past_kv):
-        attn_out, present_kv = self.mha.forward_with_cache(x, past_kv)
+    def forward_with_cache(self, x, past_kv, cache_len):
+        attn_out = self.mha.forward_with_cache(x, past_kv, cache_len)
         attn_out = self.dropout1(attn_out)
         out1 = self.layernorm1(x + attn_out)
         ffn_out = self.ffn(out1)
         ffn_out = self.dropout2(ffn_out)
-        return self.layernorm2(out1 + ffn_out), present_kv
+        return self.layernorm2(out1 + ffn_out)
 
     def get_config(self):
         config = super().get_config()
@@ -243,7 +233,6 @@ class DecoderBlock(nn.Module):
             "dropout": self.dropout,
         })
         return config
-
 
 class TransformerModel(nn.Module):
     def __init__(self, vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout):
@@ -332,3 +321,6 @@ class TransformerModel(nn.Module):
             "dropout": self.dropout_rate,
         })
         return config
+
+    def generate_response(self, user_input, tokenizer, **kwargs):
+        return generate(self, user_input, tokenizer, **kwargs)

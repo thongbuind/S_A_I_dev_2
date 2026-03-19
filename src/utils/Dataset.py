@@ -34,7 +34,7 @@ class Dataset(torch.utils.data.Dataset):
         def collate_fn(batch):
             X_batch = [item[0] for item in batch]
             Y_batch = [item[1] for item in batch]
-            idx_batch = [item[3] for item in batch]
+            lm_batch = [item[3] for item in batch]
 
             max_len = max(len(x) for x in X_batch)
             if max_len > 1000:
@@ -57,7 +57,7 @@ class Dataset(torch.utils.data.Dataset):
                 Y_padded[i, :y_len] = torch.as_tensor(y, dtype=torch.long)
 
                 if loss_masks is not None:
-                    lm = loss_masks[idx_batch[i]]
+                    lm = lm_batch[i]
                     lm_len = len(lm)
                     loss_mask_padded[i, :lm_len] = torch.as_tensor(lm, dtype=torch.float)
 
@@ -166,6 +166,7 @@ def load_data(data_type, main_data, sub_data=None, seed=54):
         X = data["X"]
         Y = data["Y"]
         loss_mask = data["loss_mask"]
+        loss_mask = np.array([np.array(lm, dtype=np.float32) for lm in loss_mask], dtype=object)
         lengths = data["lengths"]
         data.close()
         return X, Y, loss_mask, lengths
@@ -180,7 +181,7 @@ def load_data(data_type, main_data, sub_data=None, seed=54):
             X_sub, Y_sub, M_sub, L_sub = sft1_data["X"], sft1_data["Y"], sft1_data["loss_mask"], sft1_data["lengths"]
             sft1_data.close()
 
-            n_sub = len(X_main)
+            n_sub = len(X_main) * 3
             total_sub = len(X_sub)
 
             rng = np.random.default_rng(seed)
@@ -206,10 +207,12 @@ def load_data(data_type, main_data, sub_data=None, seed=54):
             X = X_combined[combined_indices]
             Y = Y_combined[combined_indices]
             loss_mask = M_combined[combined_indices]
+            loss_mask = np.array([np.array(lm, dtype=np.float32) for lm in loss_mask], dtype=object)
             lengths = L_combined[combined_indices]
 
         else:
-            X, Y, loss_mask, lengths = X_main, Y_main, M_main, L_main
+            X, Y, lengths = X_main, Y_main, L_main
+            loss_mask = np.array([np.array(lm, dtype=np.float32) for lm in M_main], dtype=object)
 
         return X, Y, loss_mask, lengths
 

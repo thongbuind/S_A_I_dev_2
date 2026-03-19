@@ -105,7 +105,7 @@ def process_sft_data(dataset):
 
         if len(output_ids) == 1:
             output_weight = 30
-        elif len(output_ids) <= 3:
+        elif len(output_ids) <= 5:
             output_weight = 10
         # elif len(output_ids) < 10:
         #     output_weight = 3
