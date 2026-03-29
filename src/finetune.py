@@ -6,13 +6,18 @@ import json
 import gc
 import sys
 import argparse
-from utils.utils import get_step_lr_lambda, freeze_layers, unfreeze_all_layers, log_progress
+from utils.utils import get_step_lr_lambda, freeze_layers, unfreeze_all_layers, log_progress, load_checkpoint, save_checkpoint
 from utils.Dataset import Dataset, split_train_val_test, load_data
 from PenaltyEngine import PenaltyEngine, WrongTokenMarginPenalty, WrongTokenEntropyPenalty, FocalOverconfidencePenalty
 from model import TransformerModel
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, required=True, help="Model size: 35M or 100M")
+parser.add_argument(
+    "--phase", type=str, required=True,
+    choices=["sft1", "sft2", "sft1_resume", "sft2_resume"],
+    help="Training phase: sft1 | sft2 | sft1_resume | sft2_resume"
+)
 args = parser.parse_args()
 
 current_file = Path(__file__).resolve()
@@ -76,7 +81,7 @@ def _build_train_loader_epoch(phase_name, main_data, sub_data, train_ratio, val_
 
     return train_ds
 
-def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_save_path, train_ratio, val_ratio, batch_size, phase_name, penalty_engine, resample_per_epoch=False):
+def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_save_path, train_ratio, val_ratio, batch_size, phase_name, penalty_engine, resample_per_epoch=False, resume_checkpoint_path: Path = None):
     print(f"╠════════════════════════════════════════════════════════════════════════════════════╣")
     print(f"║                               BẮT ĐẦU LOAD {phase_name.upper():<4} DATA                               ║")
     print(f"╠════════════════════════════════════════════════════════════════════════════════════╣")
@@ -118,20 +123,31 @@ def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_sa
     warmup_steps = total_steps // (5 * num_epochs)
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
     log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
 
     criterion = nn.CrossEntropyLoss(reduction="none")
     best_val_loss = float("inf")
     global_step = 0
+    start_epoch = 0
     use_penalty = penalty_engine is not None and len(penalty_engine.rules) > 0
     scaler = torch.amp.GradScaler('cuda', enabled=torch.cuda.is_available())
 
-    for epoch in range(num_epochs):
+    checkpoint_path = model_save_path.with_suffix(".ckpt.pt")
+    if resume_checkpoint_path is not None:
+        if resume_checkpoint_path.exists():
+            start_epoch, global_step, best_val_loss = load_checkpoint(
+                resume_checkpoint_path, model, optimizer, scheduler, scaler, device
+            )
+        else:
+            log_progress(f"[WARNING] Checkpoint not found at {resume_checkpoint_path}. Starting from scratch.")
+
+    for epoch in range(start_epoch, num_epochs):
 
         if resample_per_epoch and epoch > 0:
             log_progress(f"[{phase_name}] Epoch {epoch+1}: Re-sampling train data...")
-            train_ds = _build_train_loader_epoch(phase_name, main_data, sub_data, train_ratio, val_ratio, batch_size, epoch)
+            train_ds = _build_train_loader_epoch(
+                phase_name, main_data, sub_data, train_ratio, val_ratio, batch_size, epoch
+            )
 
         model.train()
         train_loss = 0.0
@@ -212,6 +228,12 @@ def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_sa
             torch.save(model.state_dict(), model_save_path)
             print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model")
 
+        save_checkpoint(
+            checkpoint_path, epoch, global_step,
+            model, optimizer, scheduler, scaler, best_val_loss
+        )
+        log_progress(f"Checkpoint saved → {checkpoint_path}")
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -246,7 +268,6 @@ with open(base_config_file, 'r') as f:
     config = json.load(f)
 with open(model_config_file, 'r') as f:
     config.update(json.load(f))
-    
 
 vocab_size = config["vocab_size"]
 max_seq_len = config["max_seq_len"]
@@ -265,6 +286,7 @@ sft1_learning_weight_decay = config["sft1_learning_weight_decay"]
 sft2_learning_rate = config["sft2_learning_rate"]
 accumulation_steps = config["accumulation_steps"]
 sft2_learning_weight_decay = config["sft2_learning_weight_decay"]
+freeze = config["freeze"]
 penalty_engine = (PenaltyEngine()
     .add_rule(WrongTokenMarginPenalty(weight=config["penalty_margin_weight"], detach_max=config["penalty_margin_detach_max"]))
     .add_rule(WrongTokenEntropyPenalty(weight=config["penalty_entropy_weight"], min_entropy=config["penalty_entropy_min_entropy"]))
@@ -274,50 +296,95 @@ penalty_engine = (PenaltyEngine()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 log_progress(f"Sử dụng device: {device}")
 
-log_progress("Load model từ continued-pretrain...")
 model = TransformerModel(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout).to(device)
-model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
-model.to(device)
 
-freeze_layers(model, [0, 1, 2, 3, 4, 5])
+phase = args.phase
+if phase == "sft1":
+    log_progress("Load model từ continued-pretrain...")
+    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    freeze_layers(model, freeze)
 
-optimizer_sft1 = optim.AdamW(
-    filter(lambda p: p.requires_grad, model.parameters()),
-    lr=sft1_learning_rate,
-    weight_decay=sft1_learning_weight_decay
-)
+    optimizer_sft1 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft1_learning_rate, weight_decay=sft1_learning_weight_decay
+    )
 
-test_loss_sft1 = finetune(
-    model, optimizer_sft1, device, SFT1_data_ids_file, sub_data=None,
-    num_epochs=sft1_epochs,
-    model_save_path=model_dir / "sft1.pt",
-    train_ratio=train_ratio, val_ratio=val_ratio,
-    batch_size=batch_size, phase_name="sft1",
-    penalty_engine=penalty_engine,
-    resample_per_epoch=False
-)
+    test_loss = finetune(
+        model, optimizer_sft1, device, SFT1_data_ids_file, sub_data=None,
+        num_epochs=sft1_epochs,
+        model_save_path=model_dir / "sft1.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft1",
+        penalty_engine=penalty_engine,
+        resample_per_epoch=False,
+        resume_checkpoint_path=None,
+    )
+    log_progress(f"SFT1 Test Loss: {test_loss:.4f}")
 
-model.load_state_dict(torch.load(model_dir / "sft1.pt", map_location=device))
+elif phase == "sft1_resume":
+    log_progress("SFT1 resume: khởi tạo model skeleton trước khi load checkpoint...")
+    freeze_layers(model, freeze)
 
-unfreeze_all_layers(model)
-freeze_layers(model, [0, 1, 2, 3, 4, 5])
+    optimizer_sft1 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft1_learning_rate, weight_decay=sft1_learning_weight_decay
+    )
 
-optimizer_sft2 = optim.AdamW(
-    filter(lambda p: p.requires_grad, model.parameters()),
-    lr=sft2_learning_rate,
-    weight_decay=sft2_learning_weight_decay
-)
+    test_loss = finetune(
+        model, optimizer_sft1, device, SFT1_data_ids_file, sub_data=None,
+        num_epochs=sft1_epochs,
+        model_save_path=model_dir / "sft1.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft1",
+        penalty_engine=penalty_engine,
+        resample_per_epoch=False,
+        resume_checkpoint_path=model_dir / "sft1.ckpt.pt",
+    )
+    log_progress(f"SFT1 Test Loss: {test_loss:.4f}")
 
-test_loss_sft2 = finetune(
-    model, optimizer_sft2, device, SFT2_data_ids_file, SFT1_data_ids_file,
-    num_epochs=sft2_epochs,
-    model_save_path=model_dir / "sft2.pt",
-    train_ratio=train_ratio, val_ratio=val_ratio,
-    batch_size=batch_size, phase_name="sft2",
-    penalty_engine=penalty_engine,
-    resample_per_epoch=True,
-)
+elif phase == "sft2":
+    log_progress("Load model từ sft1...")
+    model.load_state_dict(torch.load(model_dir / "sft1.pt", map_location=device))
+    unfreeze_all_layers(model)
+    freeze_layers(model, freeze)
 
-log_progress(f"SFT1 Test Loss: {test_loss_sft1:.4f}")
-log_progress(f"SFT2 Test Loss: {test_loss_sft2:.4f}")
-log_progress(f"Model cuối cùng lưu tại: {model_dir / 'sft2.pt'}")
+    optimizer_sft2 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft2_learning_rate, weight_decay=sft2_learning_weight_decay
+    )
+
+    test_loss = finetune(
+        model, optimizer_sft2, device, SFT2_data_ids_file, SFT1_data_ids_file,
+        num_epochs=sft2_epochs,
+        model_save_path=model_dir / "sft2.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft2",
+        penalty_engine=penalty_engine,
+        resample_per_epoch=True,
+        resume_checkpoint_path=None,
+    )
+    log_progress(f"SFT2 Test Loss: {test_loss:.4f}")
+
+elif phase == "sft2_resume":
+    log_progress("SFT2 resume: khởi tạo model skeleton trước khi load checkpoint...")
+    unfreeze_all_layers(model)
+    freeze_layers(model, freeze)
+
+    optimizer_sft2 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft2_learning_rate, weight_decay=sft2_learning_weight_decay
+    )
+
+    test_loss = finetune(
+        model, optimizer_sft2, device, SFT2_data_ids_file, SFT1_data_ids_file,
+        num_epochs=sft2_epochs,
+        model_save_path=model_dir / "sft2.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft2",
+        penalty_engine=penalty_engine,
+        resample_per_epoch=True,
+        resume_checkpoint_path=model_dir / "sft2.ckpt.pt",
+    )
+    log_progress(f"SFT2 Test Loss: {test_loss:.4f}")
+
+log_progress(f"Model cuối cùng lưu tại: {model_dir / (phase.split('_')[0] + '.pt')}")
