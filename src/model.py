@@ -103,7 +103,6 @@ class MultiHeadAttention(nn.Module):
 
         present_kv = (k, v)
 
-        # FIX: dùng float causal_mask
         causal_mask = self.causal_mask[:seq_len, :seq_len].view(1, 1, seq_len, seq_len)
         out = functional.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask)
 
@@ -138,7 +137,6 @@ class MultiHeadAttention(nn.Module):
         v_full = past_kv[1][:batch_size, :, :cache_len + seq_len, :]
 
         seq_total = cache_len + seq_len
-        # FIX: dùng float causal_mask
         attn_mask = self.causal_mask[:seq_total, :seq_total]
         attn_mask = attn_mask[cache_len:cache_len + seq_len, :].view(1, 1, seq_len, seq_total)
 
@@ -146,7 +144,6 @@ class MultiHeadAttention(nn.Module):
         out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
 
         return self.wo(out)
-
 
 class SwiGLU(nn.Module):
     """FFN với SwiGLU activation: SwiGLU(x) = (xW + b) * SiLU(xV + c)"""
@@ -158,7 +155,6 @@ class SwiGLU(nn.Module):
 
     def forward(self, x):
         return self.down_proj(self.up_proj(x) * functional.silu(self.gate_proj(x)))
-
 
 class DecoderBlock(nn.Module):
     def __init__(self, d_model, num_heads, ff_dim, max_seq_len, dropout):

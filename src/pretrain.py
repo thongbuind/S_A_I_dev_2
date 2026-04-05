@@ -53,7 +53,7 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     total_steps = (len(train_ds) // accumulation_steps) * epochs
-    warmup_steps = len(train_ds) // 4
+    warmup_steps = total_steps // 4
 
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

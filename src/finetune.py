@@ -120,7 +120,7 @@ def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_sa
         steps_per_epoch = len(train_ds)
         total_steps = steps_per_epoch * num_epochs
 
-    warmup_steps = int(total_steps * 0.2)
+    warmup_steps = int(total_steps * 0.25)
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
