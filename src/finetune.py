@@ -15,8 +15,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, required=True, help="Model size: 35M or 100M")
 parser.add_argument(
     "--phase", type=str, required=True,
-    choices=["sft1", "sft2", "sft1_resume", "sft2_resume"],
-    help="Training phase: sft1 | sft2 | sft1_resume | sft2_resume"
+    choices=["sft1", "sft2", "sft1_resume", "sft2_resume", "full"],
+    help="Training phase: sft1 | sft2 | sft1_resume | sft2_resume | full"
 )
 args = parser.parse_args()
 
@@ -120,7 +120,7 @@ def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_sa
         steps_per_epoch = len(train_ds)
         total_steps = steps_per_epoch * num_epochs
 
-    warmup_steps = total_steps // (5 * num_epochs)
+    warmup_steps = int(total_steps * 0.2)
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
@@ -389,6 +389,54 @@ elif phase == "sft2_resume":
         penalty_engine=penalty_engine,
         resample_per_epoch=True,
         resume_checkpoint_path=model_dir / "sft2.ckpt.pt",
+    )
+    log_progress(f"SFT2 Test Loss: {test_loss:.4f}")
+
+elif phase == "full":
+    # ── SFT1 ──
+    log_progress("Load model từ continued-pretrain...")
+    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    freeze_layers(model, freeze)
+
+    optimizer_sft1 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft1_learning_rate, weight_decay=sft1_learning_weight_decay
+    )
+
+    test_loss = finetune(
+        model, optimizer_sft1, device, SFT1_data_ids_file, sub_data=None,
+        num_epochs=sft1_epochs,
+        model_save_path=model_dir / "sft1.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft1",
+        num_workers=num_workers,
+        penalty_engine=penalty_engine,
+        resample_per_epoch=False,
+        resume_checkpoint_path=None,
+    )
+    log_progress(f"SFT1 Test Loss: {test_loss:.4f}")
+
+    # ── SFT2 ──
+    log_progress("Load model từ sft1...")
+    model.load_state_dict(torch.load(model_dir / "sft1.pt", map_location=device))
+    unfreeze_all_layers(model)
+    freeze_layers(model, freeze)
+
+    optimizer_sft2 = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=sft2_learning_rate, weight_decay=sft2_learning_weight_decay
+    )
+
+    test_loss = finetune(
+        model, optimizer_sft2, device, SFT2_data_ids_file, SFT1_data_ids_file,
+        num_epochs=sft2_epochs,
+        model_save_path=model_dir / "sft2.pt",
+        train_ratio=train_ratio, val_ratio=val_ratio,
+        batch_size=batch_size, phase_name="sft2",
+        num_workers=num_workers,
+        penalty_engine=penalty_engine,
+        resample_per_epoch=True,
+        resume_checkpoint_path=None,
     )
     log_progress(f"SFT2 Test Loss: {test_loss:.4f}")
 

@@ -250,6 +250,7 @@ continued_pretrain_test_loss = train_loop(
     epochs=continued_pretrain_epochs,
     learning_rate=continued_pretrain_learning_rate,
     weight_decay=continued_pretrain_weight_decay,
+    num_workers=num_workers,
     extra_file=pretrain_tokenized_file
 )
 

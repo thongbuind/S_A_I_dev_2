@@ -52,8 +52,11 @@ class MultiHeadAttention(nn.Module):
 
         self.rope = RotaryPositionalEmbedding(self.d_k, max_seq_len)
 
-        mask = torch.triu(torch.ones(max_seq_len, max_seq_len), diagonal=1).bool()
-        self.register_buffer('causal_mask', mask)
+        causal_mask = torch.triu(
+            torch.full((max_seq_len, max_seq_len), float('-inf')),
+            diagonal=1
+        )
+        self.register_buffer('causal_mask', causal_mask)
 
     def forward(self, x, pad_mask=None):
         batch_size, seq_len, _ = x.shape
@@ -67,9 +70,11 @@ class MultiHeadAttention(nn.Module):
         k = self.rope.apply_rope(k, positions)
 
         attn_mask = self.causal_mask[:seq_len, :seq_len].view(1, 1, seq_len, seq_len)
+
         if pad_mask is not None:
-            key_mask = ~pad_mask.unsqueeze(1).unsqueeze(2)
-            attn_mask = attn_mask | key_mask
+            key_pad = torch.zeros(batch_size, 1, 1, seq_len, device=x.device, dtype=x.dtype)
+            key_pad = key_pad.masked_fill(~pad_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
+            attn_mask = attn_mask + key_pad
 
         dropout_p = self.dropout_rate if self.training else 0.0
         out = functional.scaled_dot_product_attention(
@@ -98,6 +103,7 @@ class MultiHeadAttention(nn.Module):
 
         present_kv = (k, v)
 
+        # FIX: dùng float causal_mask
         causal_mask = self.causal_mask[:seq_len, :seq_len].view(1, 1, seq_len, seq_len)
         out = functional.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask)
 
@@ -132,6 +138,7 @@ class MultiHeadAttention(nn.Module):
         v_full = past_kv[1][:batch_size, :, :cache_len + seq_len, :]
 
         seq_total = cache_len + seq_len
+        # FIX: dùng float causal_mask
         attn_mask = self.causal_mask[:seq_total, :seq_total]
         attn_mask = attn_mask[cache_len:cache_len + seq_len, :].view(1, 1, seq_len, seq_total)
 
@@ -196,17 +203,6 @@ class DecoderBlock(nn.Module):
         ffn_out = self.dropout2(ffn_out)
         return out1 + ffn_out
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "d_model": self.d_model,
-            "num_heads": self.num_heads,
-            "ff_dim": self.ff_dim,
-            "max_seq_len": self.max_seq_len,
-            "dropout": self.dropout,
-        })
-        return config
-
 class TransformerModel(nn.Module):
     def __init__(self, vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout):
         super().__init__()
@@ -248,11 +244,6 @@ class TransformerModel(nn.Module):
         return self.final_layer(self.final_norm(x))
 
     def forward_hidden(self, inputs, attention_mask=None):
-        """
-        ở đầu vào, mỗi token được biểu diễn bởi 1 vector d_model chiều, sau đó nối lại thành 1 seq, 
-        quá trình đi qua transformer thì forward_hidden sẽ trả về 1 vector có seq_len phần tử, 
-        mỗi phần tử là 1 vector d_model chiều mô tả mối quan hệ, ngữ nghĩa của token đó ở trong câu
-        """
         if attention_mask is None:
             pad_mask = (inputs != 0)
         else:
@@ -266,21 +257,9 @@ class TransformerModel(nn.Module):
         return self.final_norm(x)
 
     def init_cache(self, batch_size, max_gen_len, device):
-        """
-        Preallocate KV cache buffer cho toàn bộ generation loop.
-
-        Workflow chuẩn:
-            cache = model.init_cache(batch_size, max_gen_len, device)
-            logits, cache = model.prefill(input_ids, cache)
-            cache_len = input_ids.size(1)
-            for _ in range(max_new_tokens):
-                logits, cache = model.decode_step(next_token, cache, cache_len)
-                cache_len += 1
-        """
         d_k = self.d_model // self.num_heads
         cache = []
         for _ in self.decoder_blocks:
-            # torch.empty: không zero-init → nhanh hơn, các vị trí chưa write không bao giờ được đọc
             k_buf = torch.empty(batch_size, self.num_heads, max_gen_len, d_k, device=device)
             v_buf = torch.empty_like(k_buf)
             cache.append((k_buf, v_buf))
@@ -305,9 +284,6 @@ class TransformerModel(nn.Module):
         return first_logits, new_cache
 
     def decode_step(self, token_ids, kv_cache, cache_len):
-        """
-        token_ids: LongTensor [B] hoặc scalar int — token mới nhất của mỗi sequence trong batch
-        """
         if not isinstance(token_ids, torch.Tensor):
             token_ids = torch.tensor([token_ids], dtype=torch.long, device=self.final_layer.weight.device)
         token_ids = token_ids.view(-1, 1)
@@ -319,19 +295,6 @@ class TransformerModel(nn.Module):
 
         logits = self.final_layer(self.final_norm(x))[:, 0, :]
         return logits, kv_cache
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "vocab_size": self.vocab_size,
-            "d_model": self.d_model,
-            "num_heads": self.num_heads,
-            "num_layers": self.num_layers,
-            "ff_dim": self.ff_dim,
-            "max_seq_len": self.max_seq_len,
-            "dropout": self.dropout_rate,
-        })
-        return config
 
     def generate_response(self, user_input, tokenizer, **kwargs):
         return generate(self, user_input, tokenizer, **kwargs)
