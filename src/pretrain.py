@@ -7,12 +7,17 @@ import json
 import gc
 import sys
 import argparse
-from utils.utils import get_step_lr_lambda, log_progress
+from utils.utils import get_step_lr_lambda, log_progress, load_checkpoint, save_checkpoint
 from utils.Dataset import Dataset, split_train_val_test, load_data
 from model import TransformerModel
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, required=True, help="Model size: 35M or 100M")
+parser.add_argument(
+    "--phase", type=str, required=True,
+    choices=["pretrain", "pretrain_resume", "continued_pretrain", "continued_pretrain_resume", "full"],
+    help="Training phase: pretrain | pretrain_resume | continued_pretrain | continued_pretrain_resume | full"
+)
 args = parser.parse_args()
 
 current_file = Path(__file__).resolve()
@@ -29,7 +34,7 @@ data_processed_dir = project_root / "data" / "processed"
 pretrain_tokenized_file = data_processed_dir / "pretrain_data_ids.npz"
 continued_pretrain_tokenized_file = data_processed_dir / "continued_pretrain_data_ids.npz"
 
-def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, num_workers, extra_file=None):
+def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, num_workers, extra_file=None, model_save_path=None, resume_checkpoint_path=None):
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                                BAT ĐAU LOAD DATA                                   ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
@@ -53,7 +58,7 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     total_steps = (len(train_ds) // accumulation_steps) * epochs
-    warmup_steps = total_steps // 4
+    warmup_steps = total_steps // 10
 
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -63,8 +68,18 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
 
     best_val_loss = float('inf')
     global_step = 0
+    start_epoch = 0
 
-    for epoch in range(epochs):
+    checkpoint_path = model_save_path.with_suffix(".ckpt.pt") if model_save_path is not None else None
+    if resume_checkpoint_path is not None:
+        if resume_checkpoint_path.exists():
+            start_epoch, global_step, best_val_loss = load_checkpoint(
+                resume_checkpoint_path, model, optimizer, scheduler, scaler, device
+            )
+        else:
+            log_progress(f"[WARNING] Checkpoint not found at {resume_checkpoint_path}. Starting from scratch.")
+
+    for epoch in range(start_epoch, epochs):
         model.train()
         train_loss = 0.0
         batch_count = 0
@@ -155,6 +170,13 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
             torch.save(model.state_dict(), model_dir / "pretrained.pt")
             print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model")
 
+        if checkpoint_path is not None:
+            save_checkpoint(
+                checkpoint_path, epoch, global_step,
+                model, optimizer, scheduler, scaler, best_val_loss
+            )
+            log_progress(f"Checkpoint saved → {checkpoint_path}")
+
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                               ĐÁNH GIÁ TRÊN TEST SET                               ║")
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
@@ -228,32 +250,102 @@ print("╠═══════════════════════�
 print("║                                 BẮT ĐẦU TRAINING                                   ║")
 print("╠════════════════════════════════════════════════════════════════════════════════════╣")
 
-pretrain_test_loss = train_loop(
-    data_type="pretrain",
-    tokenized_file=pretrain_tokenized_file,
-    epochs=pretrain_epochs,
-    learning_rate=pretrain_learning_rate,
-    weight_decay=pretrain_weight_decay,
-    num_workers=num_workers
-)
+phase = args.phase
 
-log_progress("Đang load best model từ pretrain để tiếp tục training...")
-model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
-model.to(device)
+if phase == "pretrain":
+    pretrain_test_loss = train_loop(
+        data_type="pretrain",
+        tokenized_file=pretrain_tokenized_file,
+        epochs=pretrain_epochs,
+        learning_rate=pretrain_learning_rate,
+        weight_decay=pretrain_weight_decay,
+        num_workers=num_workers,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=None,
+    )
+    log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
 
-optimizer = optim.AdamW(model.parameters(), lr=continued_pretrain_learning_rate, weight_decay=continued_pretrain_weight_decay)
-log_progress(f"Reset optimizer với learning rate: {continued_pretrain_learning_rate}")
+elif phase == "pretrain_resume":
+    log_progress("Pretrain resume: khởi tạo model skeleton trước khi load checkpoint...")
+    pretrain_test_loss = train_loop(
+        data_type="pretrain",
+        tokenized_file=pretrain_tokenized_file,
+        epochs=pretrain_epochs,
+        learning_rate=pretrain_learning_rate,
+        weight_decay=pretrain_weight_decay,
+        num_workers=num_workers,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=model_dir / "pretrained.ckpt.pt",
+    )
+    log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
 
-continued_pretrain_test_loss = train_loop(
-    data_type="continued_pretrain",
-    tokenized_file=continued_pretrain_tokenized_file,
-    epochs=continued_pretrain_epochs,
-    learning_rate=continued_pretrain_learning_rate,
-    weight_decay=continued_pretrain_weight_decay,
-    num_workers=num_workers,
-    extra_file=pretrain_tokenized_file
-)
+elif phase == "continued_pretrain":
+    log_progress("Load best model từ pretrain để tiếp tục training...")
+    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    model.to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=continued_pretrain_learning_rate, weight_decay=continued_pretrain_weight_decay)
+    log_progress(f"Reset optimizer với learning rate: {continued_pretrain_learning_rate}")
 
-log_progress(f"Hoàn thành training!")
-log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
-log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
+    continued_pretrain_test_loss = train_loop(
+        data_type="continued_pretrain",
+        tokenized_file=continued_pretrain_tokenized_file,
+        epochs=continued_pretrain_epochs,
+        learning_rate=continued_pretrain_learning_rate,
+        weight_decay=continued_pretrain_weight_decay,
+        num_workers=num_workers,
+        extra_file=pretrain_tokenized_file,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=None,
+    )
+    log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
+
+elif phase == "continued_pretrain_resume":
+    log_progress("Continued pretrain resume: khởi tạo model skeleton trước khi load checkpoint...")
+    optimizer = optim.AdamW(model.parameters(), lr=continued_pretrain_learning_rate, weight_decay=continued_pretrain_weight_decay)
+
+    continued_pretrain_test_loss = train_loop(
+        data_type="continued_pretrain",
+        tokenized_file=continued_pretrain_tokenized_file,
+        epochs=continued_pretrain_epochs,
+        learning_rate=continued_pretrain_learning_rate,
+        weight_decay=continued_pretrain_weight_decay,
+        num_workers=num_workers,
+        extra_file=pretrain_tokenized_file,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=model_dir / "pretrained_continued.ckpt.pt",
+    )
+    log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
+
+elif phase == "full":
+    pretrain_test_loss = train_loop(
+        data_type="pretrain",
+        tokenized_file=pretrain_tokenized_file,
+        epochs=pretrain_epochs,
+        learning_rate=pretrain_learning_rate,
+        weight_decay=pretrain_weight_decay,
+        num_workers=num_workers,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=None,
+    )
+
+    log_progress("Đang load best model từ pretrain để tiếp tục training...")
+    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    model.to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=continued_pretrain_learning_rate, weight_decay=continued_pretrain_weight_decay)
+    log_progress(f"Reset optimizer với learning rate: {continued_pretrain_learning_rate}")
+
+    continued_pretrain_test_loss = train_loop(
+        data_type="continued_pretrain",
+        tokenized_file=continued_pretrain_tokenized_file,
+        epochs=continued_pretrain_epochs,
+        learning_rate=continued_pretrain_learning_rate,
+        weight_decay=continued_pretrain_weight_decay,
+        num_workers=num_workers,
+        extra_file=pretrain_tokenized_file,
+        model_save_path=model_dir / "pretrained.pt",
+        resume_checkpoint_path=None,
+    )
+
+    log_progress(f"Hoàn thành training!")
+    log_progress(f"Pretrain Test Loss: {pretrain_test_loss:.4f}")
+    log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
