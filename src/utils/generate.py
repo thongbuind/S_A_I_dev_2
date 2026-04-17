@@ -196,13 +196,11 @@ def beam_core(model, input_ids, start,
     pool = completed if completed else [{"seq": seqs[i], "log_prob": log_probs[i]} for i in range(len(seqs))]
     return max(pool, key=lambda x: score_fn(x["seq"], x["log_prob"], start))
 
-
 # ================= PUBLIC API =================
-
 def generate(model, user_input, tokenizer,
                    max_new_tokens=200, beam_size=5,
                    no_repeat_ngram=3, penalty=1.2,
-                   early_stop=False, patience=15):
+                   early_stop=False, patience=30):
 
     device = model.final_layer.weight.device
     ids, start, EOS, PAD = build_input(user_input, tokenizer)

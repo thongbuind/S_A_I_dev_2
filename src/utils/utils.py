@@ -5,10 +5,10 @@ def get_step_lr_lambda(warmup_steps, total_steps):
     def lr_lambda(current_step):
         if current_step < warmup_steps:
             return float(current_step) / float(max(1, warmup_steps))
-        elif current_step < total_steps * 0.5:
+        elif current_step < total_steps * 0.4:
             return 1.0
         else:
-            progress = (current_step - total_steps * 0.5) / (total_steps * 0.3)
+            progress = (current_step - total_steps * 0.4) / (total_steps * 0.3)
             return max(0.1, 1.0 - 0.9 * progress)
     return lr_lambda
 
