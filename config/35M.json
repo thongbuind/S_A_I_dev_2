@@ -3,7 +3,7 @@
     "num_heads": 8,
     "num_layers": 8,
     "ff_dim": 2048,
-    "batch_size": 24,
+    "batch_size": 22,
     "freeze": [0, 1, 2, 3],
     "num_workers": 1
 }
