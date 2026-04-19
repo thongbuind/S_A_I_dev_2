@@ -120,7 +120,7 @@ def finetune(model, optimizer, device, main_data, sub_data, num_epochs, model_sa
         steps_per_epoch = len(train_ds)
         total_steps = steps_per_epoch * num_epochs
 
-    warmup_steps = int(total_steps * 0.25)
+    warmup_steps = int(total_steps * 0.15)
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     log_progress(f"Step-based LR: warmup={warmup_steps} steps, total={total_steps} steps")
@@ -302,7 +302,7 @@ model = TransformerModel(vocab_size, d_model, num_heads, num_layers, ff_dim, max
 phase = args.phase
 if phase == "sft1":
     log_progress("Load model từ continued-pretrain...")
-    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    model.load_state_dict(torch.load(model_dir / "continued_pretrained.pt", map_location=device))
     freeze_layers(model, freeze)
 
     optimizer_sft1 = optim.AdamW(
@@ -395,7 +395,7 @@ elif phase == "sft2_resume":
 elif phase == "full":
     # ── SFT1 ──
     log_progress("Load model từ continued-pretrain...")
-    model.load_state_dict(torch.load(model_dir / "pretrained.pt", map_location=device))
+    model.load_state_dict(torch.load(model_dir / "continued_pretrained.pt", map_location=device))
     freeze_layers(model, freeze)
 
     optimizer_sft1 = optim.AdamW(

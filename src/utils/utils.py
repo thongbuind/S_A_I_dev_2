@@ -12,11 +12,11 @@ def get_step_lr_lambda(warmup_steps, total_steps):
             return max(0.1, 1.0 - 0.9 * progress)
     return lr_lambda
 
-def freeze_layers(model, layers_to_freeze):
-    for idx in layers_to_freeze:
-        for param in model.decoder_blocks[idx].parameters():
+def freeze_layers(model, freeze):
+    for idx in freeze:
+        for param in model.blocks[idx].parameters():
             param.requires_grad = False
-    
+
 def unfreeze_all_layers(model):
     for param in model.parameters():
         param.requires_grad = True

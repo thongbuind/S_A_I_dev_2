@@ -7,6 +7,7 @@ import json
 import gc
 import sys
 import argparse
+import math
 from utils.utils import get_step_lr_lambda, log_progress, load_checkpoint, save_checkpoint
 from utils.Dataset import Dataset, split_train_val_test, load_data
 from model import TransformerModel
@@ -34,6 +35,7 @@ data_processed_dir = project_root / "data" / "processed"
 pretrain_tokenized_file = data_processed_dir / "pretrain_data_ids.npz"
 continued_pretrain_tokenized_file = data_processed_dir / "continued_pretrain_data_ids.npz"
 
+
 def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, num_workers, extra_file=None, model_save_path=None, resume_checkpoint_path=None):
     print("╠════════════════════════════════════════════════════════════════════════════════════╣")
     print("║                                BAT ĐAU LOAD DATA                                   ║")
@@ -57,7 +59,7 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
     global optimizer
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    total_steps = (len(train_ds) // accumulation_steps) * epochs
+    total_steps = math.ceil(len(train_ds) / accumulation_steps) * epochs
     warmup_steps = total_steps // 10
 
     lr_lambda = get_step_lr_lambda(warmup_steps, total_steps)
@@ -92,12 +94,12 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
             sample_weight = sample_weight.to(device, non_blocking=True)
             attention_mask = attention_mask.to(device, non_blocking=True)
 
-            with autocast(device_type='cuda', enabled=(scaler is not None)):
+            with autocast(device_type='cuda', enabled=(device.type == 'cuda')):
                 outputs = model(X_batch, attention_mask=attention_mask)
-
+                
                 loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
                 num_valid_tokens = sample_weight.sum()
-                loss = ((loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8))
+                loss = (loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8)
 
             scaled_loss = loss / accumulation_steps
 
@@ -109,17 +111,11 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
             if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == total_batches:
                 if scaler is not None:
                     scaler.unscale_(optimizer)
-
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
                     scaler.step(optimizer)
                     scaler.update()
-
                 else:
-                    torch.nn.utils.clip_grad_norm_(
-                        model.parameters(),
-                        max_norm=1.0
-                    )
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     optimizer.step()
 
                 optimizer.zero_grad()
@@ -134,7 +130,7 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
                 avg_loss = train_loss / batch_count
                 print(f"\rEpoch {epoch+1}/{epochs} - Step {global_step}/{total_steps} - loss: {avg_loss:.4f} - lr: {current_lr:.2e}", end='')
 
-            del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
+            del X_batch, Y_batch, outputs, loss, loss_per_token, sample_weight, attention_mask
 
         print()
 
@@ -146,29 +142,30 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
             for X_batch, Y_batch, sample_weight, attention_mask in val_ds:
                 X_batch = X_batch.to(device, non_blocking=True)
                 Y_batch = Y_batch.to(device, non_blocking=True)
-
                 sample_weight = sample_weight.to(device, non_blocking=True)
                 attention_mask = attention_mask.to(device, non_blocking=True)
 
-                with autocast(device_type='cuda', enabled=(scaler is not None)):
+                with autocast(device_type='cuda', enabled=(device.type == 'cuda')):
                     outputs = model(X_batch, attention_mask=attention_mask)
-
-                loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
+                    loss_per_token = criterion(outputs.view(-1, outputs.size(-1)), Y_batch.view(-1))
 
                 num_valid_tokens = sample_weight.sum()
-                loss = ((loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8))
-
+                loss = (loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8)
                 val_loss += loss.item()
 
-                del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
+                del X_batch, Y_batch, outputs, loss, loss_per_token, sample_weight, attention_mask
 
         val_loss /= len(val_ds)
         log_progress(f"Epoch {epoch+1}/{epochs} Train Loss: {train_loss:.4f} Val Loss: {val_loss:.4f}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), model_dir / "pretrained.pt")
-            print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model")
+            if model_save_path is not None:
+                torch.save(model.state_dict(), model_save_path)
+                print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model to {model_save_path}")
+            else:
+                torch.save(model.state_dict(), model_dir / "pretrained.pt")
+                print(f"Epoch {epoch+1}: val_loss improved to {val_loss:.5f}, saving model to default path")
 
         if checkpoint_path is not None:
             save_checkpoint(
@@ -188,23 +185,21 @@ def train_loop(data_type, tokenized_file, epochs, learning_rate, weight_decay, n
         for X_batch, Y_batch, sample_weight, attention_mask in test_ds:
             X_batch = X_batch.to(device, non_blocking=True)
             Y_batch = Y_batch.to(device, non_blocking=True)
-
             sample_weight = sample_weight.to(device, non_blocking=True)
             attention_mask = attention_mask.to(device, non_blocking=True)
 
-            with autocast(device_type='cuda', enabled=(scaler is not None)):
+            with autocast(device_type='cuda', enabled=(device.type == 'cuda')):
                 outputs = model(X_batch, attention_mask=attention_mask)
-
-            loss_per_token = criterion(
-                outputs.view(-1, outputs.size(-1)),
-                Y_batch.view(-1)
-            )
+                loss_per_token = criterion(
+                    outputs.view(-1, outputs.size(-1)),
+                    Y_batch.view(-1)
+                )
 
             num_valid_tokens = sample_weight.sum()
-            loss = ((loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8))
+            loss = (loss_per_token * sample_weight.view(-1)).sum() / (num_valid_tokens + 1e-8)
             test_loss += loss.item()
 
-            del X_batch, Y_batch, outputs, loss, sample_weight, attention_mask
+            del X_batch, Y_batch, outputs, loss, loss_per_token, sample_weight, attention_mask
 
     test_loss /= len(test_ds)
     log_progress(f"Test Loss: {test_loss:.4f}")
@@ -216,7 +211,7 @@ with open(base_config_file, 'r') as f:
     config = json.load(f)
 with open(model_config_file, 'r') as f:
     config.update(json.load(f))
-    
+
 vocab_size = config['vocab_size']
 max_seq_len = config['max_seq_len']
 d_model = config['d_model']
@@ -242,7 +237,7 @@ elif torch.backends.mps.is_available():
     device = torch.device("mps")
 else:
     device = torch.device("cpu")
-    
+
 model = TransformerModel(vocab_size, d_model, num_heads, num_layers, ff_dim, max_seq_len, dropout).to(device)
 optimizer = optim.AdamW(model.parameters(), lr=pretrain_learning_rate, weight_decay=pretrain_weight_decay)
 
@@ -294,7 +289,7 @@ elif phase == "continued_pretrain":
         weight_decay=continued_pretrain_weight_decay,
         num_workers=num_workers,
         extra_file=pretrain_tokenized_file,
-        model_save_path=model_dir / "pretrained.pt",
+        model_save_path=model_dir / "continued_pretrained.pt",
         resume_checkpoint_path=None,
     )
     log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
@@ -311,7 +306,7 @@ elif phase == "continued_pretrain_resume":
         weight_decay=continued_pretrain_weight_decay,
         num_workers=num_workers,
         extra_file=pretrain_tokenized_file,
-        model_save_path=model_dir / "pretrained.pt",
+        model_save_path=model_dir / "continued_pretrained.pt",
         resume_checkpoint_path=model_dir / "pretrained_continued.ckpt.pt",
     )
     log_progress(f"Continued Pretrain Test Loss: {continued_pretrain_test_loss:.4f}")
@@ -342,7 +337,7 @@ elif phase == "full":
         weight_decay=continued_pretrain_weight_decay,
         num_workers=num_workers,
         extra_file=pretrain_tokenized_file,
-        model_save_path=model_dir / "pretrained.pt",
+        model_save_path=model_dir / "continued_pretrained.pt",
         resume_checkpoint_path=None,
     )
 
